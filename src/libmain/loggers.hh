@@ -8,6 +8,7 @@ enum class LogFormat {
   raw,
   rawWithLogs,
   internalJSON,
+  diffs,
   bar,
   barWithLogs,
 };
