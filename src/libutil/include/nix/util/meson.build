@@ -45,6 +45,7 @@ headers = files(
   'json-non-null.hh',
   'json-utils.hh',
   'logging.hh',
+  'logging-diffs.hh',
   'lru-cache.hh',
   'memory-source-accessor.hh',
   'mounted-source-accessor.hh',
