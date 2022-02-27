@@ -4,6 +4,8 @@
 #include "error.hh"
 #include "config.hh"
 
+#include <nlohmann/json.hpp>
+
 namespace nix {
 
 typedef enum {
@@ -165,6 +167,8 @@ extern Logger * logger;
 Logger * makeSimpleLogger(bool printBuildLogs = true);
 
 Logger * makeJSONLogger(Logger & prevLogger);
+
+Logger * makeDiffLogger(Logger & prevLogger);
 
 bool handleJSONLogMessage(const std::string & msg,
     const Activity & act, std::map<ActivityId, Activity> & activities,
