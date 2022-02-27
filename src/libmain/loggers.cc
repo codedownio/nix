@@ -13,6 +13,8 @@ LogFormat parseLogFormat(const std::string & logFormatStr) {
         return LogFormat::rawWithLogs;
     else if (logFormatStr == "internal-json")
         return LogFormat::internalJSON;
+    else if (logFormatStr == "diffs")
+        return LogFormat::diffs;
     else if (logFormatStr == "bar")
         return LogFormat::bar;
     else if (logFormatStr == "bar-with-logs")
@@ -28,6 +30,8 @@ Logger * makeDefaultLogger() {
         return makeSimpleLogger(true);
     case LogFormat::internalJSON:
         return makeJSONLogger(*makeSimpleLogger(true));
+    case LogFormat::diffs:
+        return makeDiffLogger(*makeSimpleLogger(true));
     case LogFormat::bar:
         return makeProgressBar();
     case LogFormat::barWithLogs: {
