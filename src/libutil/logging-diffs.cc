@@ -10,13 +10,15 @@
 #include <nlohmann/json.hpp>
 #include <thread>
 
+using json = nlohmann::json;
+
 namespace nix {
 
 struct DiffLogger : Logger {
     Logger & prevLogger;
 
     NixBuildState state;
-    nlohmann::json last_sent;
+    json last_sent;
     std::mutex lock;
     std::atomic_bool exitPeriodicAction;
     std::thread printerThread;
@@ -40,8 +42,8 @@ struct DiffLogger : Logger {
 
         if (this->last_sent == this->state) return;
 
-        nlohmann::json j = this->state;
-        nlohmann::json patch = nlohmann::json::diff(this->last_sent, this->state);
+        json j = this->state;
+        json patch = json::diff(this->last_sent, this->state);
         write(patch);
         this->last_sent = this->state;
     }
@@ -59,9 +61,9 @@ struct DiffLogger : Logger {
         return true;
     }
 
-    void write(const nlohmann::json & json)
+    void write(const json & json)
     {
-        prevLogger.log(lvlError, "@nix " + json.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+        prevLogger.log(lvlError, "@nix " + json.dump(-1, ' ', false, json::error_handler_t::replace));
     }
 
     void log(Verbosity lvl, const FormatOrString & fs) override
