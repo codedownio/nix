@@ -16,42 +16,43 @@ struct DiffLogger : Logger {
     Logger & prevLogger;
 
     NixBuildState state;
+    nlohmann::json last_sent;
     std::mutex lock;
     std::atomic_bool exitPeriodicAction;
     std::thread printerThread;
 
     DiffLogger(Logger & prevLogger) : prevLogger(prevLogger),
                                       exitPeriodicAction(false),
-                                      printerThread(std::thread(&DiffLogger::periodicAction, this))
-    {
-
-    }
+                                      printerThread(std::thread(&DiffLogger::periodicAction, this)) { }
 
     void periodicAction() {
         while (true) {
             if (this->exitPeriodicAction) break;
 
-            prevLogger.log(lvlError, "Periodic action!");
+            sendLatestIfNecessary();
 
-            {
-                std::lock_guard<std::mutex> guard(lock);
-                nlohmann::json j = this->state;
-                prevLogger.log(lvlError, j.dump());
-            }
-
-            std::chrono::seconds dura(1);
-            std::this_thread::sleep_for(dura);
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
         }
     }
 
-    void stop() {
-        prevLogger.log(lvlError, "STOP");
+    void sendLatestIfNecessary() {
+        std::lock_guard<std::mutex> guard(lock);
 
-        std::chrono::seconds dura(5);
-        std::this_thread::sleep_for(dura);
+        if (this->last_sent == this->state) return;
+
+        nlohmann::json j = this->state;
+        nlohmann::json patch = nlohmann::json::diff(this->last_sent, this->state);
+        write(patch);
+        this->last_sent = this->state;
+    }
+
+    void stop() {
+        // std::chrono::seconds dura(5);
+        // std::this_thread::sleep_for(dura);
 
         this->exitPeriodicAction = true;
         this->printerThread.join();
+        sendLatestIfNecessary();
     }
 
     bool isVerbose() override {
@@ -65,7 +66,10 @@ struct DiffLogger : Logger {
 
     void log(Verbosity lvl, const FormatOrString & fs) override
     {
-        prevLogger.log(lvlError, "log!");
+        std::lock_guard<std::mutex> guard(lock);
+        NixMessage msg;
+        msg.msg = fs.s;
+        this->state.messages.push_back(msg);
     }
 
     void logEI(const ErrorInfo & ei) override
@@ -76,7 +80,6 @@ struct DiffLogger : Logger {
     void startActivity(ActivityId act, Verbosity lvl, ActivityType type,
         const std::string & s, const Fields & fields, ActivityId parent) override
     {
-        prevLogger.log(lvlError, "startActivity!");
         ActivityState as(type, s, fields, parent);
         std::lock_guard<std::mutex> guard(lock);
         this->state.activities.insert(std::pair<ActivityId, ActivityState>(act, as));
@@ -84,7 +87,6 @@ struct DiffLogger : Logger {
 
     void stopActivity(ActivityId act) override
     {
-        prevLogger.log(lvlError, "stopActivity!");
         std::lock_guard<std::mutex> guard(lock);
         try { this->state.activities.at(act).is_complete = true; }
         catch (const std::out_of_range& oor) { }
@@ -92,7 +94,6 @@ struct DiffLogger : Logger {
 
     void result(ActivityId act, ResultType type, const Fields & fields) override
     {
-        prevLogger.log(lvlError, "result!");
         std::lock_guard<std::mutex> guard(lock);
         try { this->state.activities.at(act).fields = fields; }
         catch (const std::out_of_range& oor) { }

@@ -58,8 +58,6 @@ struct NixMessage {
 struct NixBuildState {
     std::map<ActivityId, ActivityState> activities;
     std::list<NixMessage> messages;
-
-    // NLOHMANN_DEFINE_TYPE_INTRUSIVE(NixBuildState, activities, messages)
 };
 
 void to_json(nlohmann::json & j, const NixBuildState & s) {
