@@ -118,7 +118,7 @@ struct NixArgs : virtual MultiCommand, virtual MixCommonArgs, virtual RootArgs
             .shortName = 'L',
             .description = "Print full build logs on standard error.",
             .category = loggingCategory,
-            .handler = {[&]() { logger->setPrintBuildLogs(true); }},
+            .handler = {[&]() { setDefaultPrintBuildLogs(true); }},
             .experimentalFeature = Xp::NixCommand,
         });
 
