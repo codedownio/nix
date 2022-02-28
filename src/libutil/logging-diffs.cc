@@ -51,10 +51,15 @@ struct DiffLogger : Logger {
     std::thread printerThread;
 
     DiffLogger(Logger & prevLogger) : prevLogger(prevLogger),
+                                      last_sent(nullptr),
                                       exitPeriodicAction(false),
                                       printerThread(std::thread(&DiffLogger::periodicAction, this)) { }
 
     void periodicAction() {
+        // Send initial value as a normal value
+        write(this->state);
+        this->last_sent = this->state;
+
         while (true) {
             if (this->exitPeriodicAction) break;
 
@@ -69,9 +74,7 @@ struct DiffLogger : Logger {
 
         if (this->last_sent == this->state) return;
 
-        json j = this->state;
-        json patch = json::diff(this->last_sent, this->state);
-        write(patch);
+        write(json::diff(this->last_sent, this->state));
         this->last_sent = this->state;
     }
 
