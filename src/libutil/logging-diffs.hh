@@ -32,10 +32,14 @@ struct ActivityState {
 
 struct NixMessage {
     int level;
+
     std::optional<int> line;
     std::optional<int> column;
     std::optional<std::string> file;
+    std::optional<nlohmann::json> trace;
+
     std::string msg;
+    std::string raw_msg;
 };
 
 struct NixBuildState {

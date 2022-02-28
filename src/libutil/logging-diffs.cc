@@ -118,7 +118,7 @@ struct DiffLogger : Logger {
 
         msg.level = ei.level;
         msg.msg = oss.str();
-        // json["raw_msg"] = ei.msg.str();
+        msg.raw_msg = ei.msg.str();
 
         if (ei.errPos.has_value() && (*ei.errPos)) {
             msg.line = ei.errPos->line;
@@ -126,21 +126,21 @@ struct DiffLogger : Logger {
             msg.file = ei.errPos->file;
         }
 
-        // if (loggerSettings.showTrace.get() && !ei.traces.empty()) {
-        //     nlohmann::json traces = nlohmann::json::array();
-        //     for (auto iter = ei.traces.rbegin(); iter != ei.traces.rend(); ++iter) {
-        //         nlohmann::json stackFrame;
-        //         stackFrame["raw_msg"] = iter->hint.str();
-        //         if (iter->pos.has_value() && (*iter->pos)) {
-        //             stackFrame["line"] = iter->pos->line;
-        //             stackFrame["column"] = iter->pos->column;
-        //             stackFrame["file"] = iter->pos->file;
-        //         }
-        //         traces.push_back(stackFrame);
-        //     }
+        if (loggerSettings.showTrace.get() && !ei.traces.empty()) {
+            nlohmann::json traces = nlohmann::json::array();
+            for (auto iter = ei.traces.rbegin(); iter != ei.traces.rend(); ++iter) {
+                nlohmann::json stackFrame;
+                stackFrame["raw_msg"] = iter->hint.str();
+                if (iter->pos.has_value() && (*iter->pos)) {
+                    stackFrame["line"] = iter->pos->line;
+                    stackFrame["column"] = iter->pos->column;
+                    stackFrame["file"] = iter->pos->file;
+                }
+                traces.push_back(stackFrame);
+            }
 
-        //     json["trace"] = traces;
-        // }
+            msg.trace = traces;
+        }
 
         std::lock_guard<std::mutex> guard(lock);
         this->state.messages.push_back(msg);
