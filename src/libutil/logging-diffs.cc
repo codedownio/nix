@@ -33,7 +33,12 @@ void to_json(nlohmann::json & j, const ActivityState & as) {
 }
 
 void to_json(nlohmann::json & j, const NixBuildState & s) {
-    j = nlohmann::json{ {"activities", s.activities}, {"messages", s.messages} };
+    j = nlohmann::json{ {"messages", s.messages} };
+
+    j["activities"] = json(json::value_t::object);
+    for (const auto& [key, value] : s.activities) {
+        j["activities"][std::to_string(key)] = value;
+    }
 }
 
 struct DiffLogger : Logger {
