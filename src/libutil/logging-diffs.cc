@@ -27,6 +27,14 @@ void addFields(nlohmann::json & json, const Logger::Fields & fields)
             abort();
 }
 
+void to_json(nlohmann::json & j, const NixMessage & m) {
+    j = nlohmann::json{ {"level", m.level} };
+
+    if (m.line.has_value()) j["line"] = m.line.value();
+    if (m.column.has_value()) j["column"] = m.column.value();
+    if (m.file.has_value()) j["file"] = m.file.value();
+}
+
 void to_json(nlohmann::json & j, const ActivityState & as) {
     j = nlohmann::json{ {"is_complete", as.is_complete}, {"type", as.type}, {"text", as.text} };
     addFields(j, as.fields);
@@ -103,7 +111,39 @@ struct DiffLogger : Logger {
 
     void logEI(const ErrorInfo & ei) override
     {
-        prevLogger.log(lvlError, "logEI!");
+        NixMessage msg;
+
+        std::ostringstream oss;
+        showErrorInfo(oss, ei, loggerSettings.showTrace.get());
+
+        msg.level = ei.level;
+        msg.msg = oss.str();
+        // json["raw_msg"] = ei.msg.str();
+
+        if (ei.errPos.has_value() && (*ei.errPos)) {
+            msg.line = ei.errPos->line;
+            msg.column = ei.errPos->column;
+            msg.file = ei.errPos->file;
+        }
+
+        // if (loggerSettings.showTrace.get() && !ei.traces.empty()) {
+        //     nlohmann::json traces = nlohmann::json::array();
+        //     for (auto iter = ei.traces.rbegin(); iter != ei.traces.rend(); ++iter) {
+        //         nlohmann::json stackFrame;
+        //         stackFrame["raw_msg"] = iter->hint.str();
+        //         if (iter->pos.has_value() && (*iter->pos)) {
+        //             stackFrame["line"] = iter->pos->line;
+        //             stackFrame["column"] = iter->pos->column;
+        //             stackFrame["file"] = iter->pos->file;
+        //         }
+        //         traces.push_back(stackFrame);
+        //     }
+
+        //     json["trace"] = traces;
+        // }
+
+        std::lock_guard<std::mutex> guard(lock);
+        this->state.messages.push_back(msg);
     }
 
     void startActivity(ActivityId act, Verbosity lvl, ActivityType type,

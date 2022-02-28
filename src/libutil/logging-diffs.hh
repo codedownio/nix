@@ -9,6 +9,7 @@
 
 #include <list>
 #include <map>
+#include <optional>
 
 namespace nix {
 
@@ -31,12 +32,10 @@ struct ActivityState {
 
 struct NixMessage {
     int level;
-    int line;
-    int column;
-    std::string file;
+    std::optional<int> line;
+    std::optional<int> column;
+    std::optional<std::string> file;
     std::string msg;
-
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(NixMessage, level, line, column, file, msg)
 };
 
 struct NixBuildState {
