@@ -98,7 +98,7 @@ struct DiffLogger : Logger {
 
     void write(const json & json)
     {
-        prevLogger.log(lvlError, "@nix " + json.dump(-1, ' ', false, json::error_handler_t::replace));
+        prevLogger.log(lvlError, json.dump(-1, ' ', false, json::error_handler_t::replace));
     }
 
     void log(Verbosity lvl, const FormatOrString & fs) override
