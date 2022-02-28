@@ -14,6 +14,28 @@ using json = nlohmann::json;
 
 namespace nix {
 
+void addFields(nlohmann::json & json, const Logger::Fields & fields)
+{
+    if (fields.empty()) return;
+    auto & arr = json["fields"] = nlohmann::json::array();
+    for (auto & f : fields)
+        if (f.type == Logger::Field::tInt)
+            arr.push_back(f.i);
+        else if (f.type == Logger::Field::tString)
+            arr.push_back(f.s);
+        else
+            abort();
+}
+
+void to_json(nlohmann::json & j, const ActivityState & as) {
+    j = nlohmann::json{ {"is_complete", as.is_complete}, {"type", as.type}, {"text", as.text} };
+    addFields(j, as.fields);
+}
+
+void to_json(nlohmann::json & j, const NixBuildState & s) {
+    j = nlohmann::json{ {"activities", s.activities}, {"messages", s.messages} };
+}
+
 struct DiffLogger : Logger {
     Logger & prevLogger;
 
@@ -49,9 +71,6 @@ struct DiffLogger : Logger {
     }
 
     void stop() {
-        // std::chrono::seconds dura(5);
-        // std::this_thread::sleep_for(dura);
-
         this->exitPeriodicAction = true;
         this->printerThread.join();
         sendLatestIfNecessary();
