@@ -36,6 +36,7 @@ struct NixMessage {
     std::optional<int> line;
     std::optional<int> column;
     std::optional<std::string> file;
+
     std::optional<nlohmann::json> trace;
 
     std::string msg;

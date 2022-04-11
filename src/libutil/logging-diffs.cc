@@ -33,6 +33,11 @@ void to_json(nlohmann::json & j, const NixMessage & m) {
     if (m.line.has_value()) j["line"] = m.line.value();
     if (m.column.has_value()) j["column"] = m.column.value();
     if (m.file.has_value()) j["file"] = m.file.value();
+
+    if (m.trace.has_value()) j["trace"] = m.trace.value();
+
+    if (!m.msg.empty()) j["msg"] = m.msg;
+    if (!m.raw_msg.empty()) j["raw_msg"] = m.raw_msg;
 }
 
 void to_json(nlohmann::json & j, const ActivityState & as) {
@@ -56,12 +61,24 @@ struct DiffLogger : Logger {
     json last_sent;
     std::mutex lock;
     std::atomic_bool exitPeriodicAction;
+    std::atomic_bool exited;
     std::thread printerThread;
 
     DiffLogger(Logger & prevLogger) : prevLogger(prevLogger),
                                       last_sent(nullptr),
                                       exitPeriodicAction(false),
+                                      exited(false),
                                       printerThread(std::thread(&DiffLogger::periodicAction, this)) { }
+
+    // Note: tried to move the contents of the stop() fn to ~DiffLogger, but couldn't get
+    // it to run.
+
+    void stop() {
+        this->exitPeriodicAction = true;
+        this->printerThread.join();
+        sendLatestIfNecessary();
+        this->exited = true;
+    }
 
     void periodicAction() {
         // Send initial value as a normal value
@@ -79,17 +96,14 @@ struct DiffLogger : Logger {
 
     void sendLatestIfNecessary() {
         std::lock_guard<std::mutex> guard(lock);
+        this->sendLatestIfNecessaryUnlocked();
+    }
 
+    void sendLatestIfNecessaryUnlocked() {
         if (this->last_sent == this->state) return;
 
         write(json::diff(this->last_sent, this->state));
         this->last_sent = this->state;
-    }
-
-    void stop() {
-        this->exitPeriodicAction = true;
-        this->printerThread.join();
-        sendLatestIfNecessary();
     }
 
     bool isVerbose() override {
@@ -107,6 +121,9 @@ struct DiffLogger : Logger {
         NixMessage msg;
         msg.msg = fs.s;
         this->state.messages.push_back(msg);
+
+        // Not sure why, but sometimes log messages happen after stop() is called
+        if (this->exited) sendLatestIfNecessaryUnlocked();
     }
 
     void logEI(const ErrorInfo & ei) override
@@ -144,6 +161,9 @@ struct DiffLogger : Logger {
 
         std::lock_guard<std::mutex> guard(lock);
         this->state.messages.push_back(msg);
+
+        // Not sure why, but sometimes log messages happen after stop() is called
+        if (this->exited) sendLatestIfNecessaryUnlocked();
     }
 
     void startActivity(ActivityId act, Verbosity lvl, ActivityType type,
