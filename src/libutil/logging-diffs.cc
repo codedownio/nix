@@ -185,7 +185,9 @@ struct DiffLogger : Logger {
     {
         std::lock_guard<std::mutex> guard(lock);
         try { this->state.activities.at(act).fields = fields; }
-        catch (const std::out_of_range& oor) { }
+        catch (const std::out_of_range& oor) {
+            Logger::writeToStdout("Failed to look up result of type " + type);
+        }
     }
 };
 
