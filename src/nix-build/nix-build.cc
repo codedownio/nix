@@ -9,6 +9,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <iostream>
+
 #include "parsed-derivations.hh"
 #include "store-api.hh"
 #include "local-fs-store.hh"
@@ -569,6 +571,7 @@ static void main_nix_build(int argc, char * * argv)
 
         restoreProcessContext();
 
+        std::cout << "first nix-buid stop!" << std::endl;
         logger->stop();
 
         execvp(shell->c_str(), argPtrs.data());
@@ -629,6 +632,7 @@ static void main_nix_build(int argc, char * * argv)
             outPaths.push_back(outputPath);
         }
 
+        std::cout << "second nix-buid stop!" << std::endl;
         logger->stop();
 
         for (auto & path : outPaths)

@@ -20,6 +20,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <iostream>
+
 extern std::string chrootHelperName;
 
 void chrootHelper(int argc, char * * argv);
@@ -261,7 +263,11 @@ void mainWrapped(int argc, char * * argv)
     }
     #endif
 
-    Finally f([] { logger->stop(); });
+    Finally f([] {
+        // This needs to be whitespace or it will screw up the doc/manual build...
+        std::cout << "\n\n\n\n\n" << std::endl;
+        logger->stop();
+    });
 
     programPath = argv[0];
     auto programName = std::string(baseNameOf(programPath));
