@@ -73,7 +73,14 @@ struct DiffLogger : Logger {
     // Note: tried to move the contents of the stop() fn to ~DiffLogger, but couldn't get
     // it to run.
 
+    ~DiffLogger() {
+        this->stop();
+    }
+
     void stop() {
+        // Make stop() idempotent
+        if (this->exitPeriodicAction) return;
+
         this->exitPeriodicAction = true;
         this->printerThread.join();
         sendLatestIfNecessary();
