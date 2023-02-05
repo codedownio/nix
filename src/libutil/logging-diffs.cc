@@ -54,6 +54,36 @@ void to_json(nlohmann::json & j, const NixBuildState & s) {
     }
 }
 
+void add_pos_to_message(NixMessage & msg, std::shared_ptr<AbstractPos> pos)
+{
+    if (pos) {
+        msg.line = pos->line;
+        msg.column = pos->column;
+        std::ostringstream str;
+        pos->print(str);
+        msg.file = str.str();
+    } else {
+        msg.line = std::nullopt;
+        msg.column = std::nullopt;
+        msg.file = std::nullopt;
+    }
+}
+
+void pos_to_json(nlohmann::json & json, std::shared_ptr<AbstractPos> pos)
+{
+    if (pos) {
+        json["line"] = pos->line;
+        json["column"] = pos->column;
+        std::ostringstream str;
+        pos->print(str);
+        json["file"] = str.str();
+    } else {
+        json["line"] = nullptr;
+        json["column"] = nullptr;
+        json["file"] = nullptr;
+    }
+}
+
 struct DiffLogger : Logger {
     Logger & prevLogger;
 
@@ -144,22 +174,14 @@ struct DiffLogger : Logger {
         msg.msg = oss.str();
         msg.raw_msg = ei.msg.str();
 
-        if (ei.errPos.has_value() && (*ei.errPos)) {
-            msg.line = ei.errPos->line;
-            msg.column = ei.errPos->column;
-            msg.file = ei.errPos->file;
-        }
+        add_pos_to_message(msg, ei.errPos);
 
         if (loggerSettings.showTrace.get() && !ei.traces.empty()) {
             nlohmann::json traces = nlohmann::json::array();
             for (auto iter = ei.traces.rbegin(); iter != ei.traces.rend(); ++iter) {
                 nlohmann::json stackFrame;
                 stackFrame["raw_msg"] = iter->hint.str();
-                if (iter->pos.has_value() && (*iter->pos)) {
-                    stackFrame["line"] = iter->pos->line;
-                    stackFrame["column"] = iter->pos->column;
-                    stackFrame["file"] = iter->pos->file;
-                }
+                pos_to_json(stackFrame, iter->pos);
                 traces.push_back(stackFrame);
             }
 
