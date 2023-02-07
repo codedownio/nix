@@ -14,10 +14,10 @@ using json = nlohmann::json;
 
 namespace nix {
 
-void addFields(nlohmann::json & json, const Logger::Fields & fields)
+void addFields(json & json, const Logger::Fields & fields)
 {
     if (fields.empty()) return;
-    auto & arr = json["fields"] = nlohmann::json::array();
+    auto & arr = json["fields"] = json::array();
     for (auto & f : fields)
         if (f.type == Logger::Field::tInt)
             arr.push_back(f.i);
@@ -27,8 +27,8 @@ void addFields(nlohmann::json & json, const Logger::Fields & fields)
             abort();
 }
 
-void to_json(nlohmann::json & j, const NixMessage & m) {
-    j = nlohmann::json{ {"level", m.level} };
+void to_json(json & j, const NixMessage & m) {
+    j = json{ {"level", m.level} };
 
     if (m.line.has_value()) j["line"] = m.line.value();
     if (m.column.has_value()) j["column"] = m.column.value();
@@ -40,13 +40,13 @@ void to_json(nlohmann::json & j, const NixMessage & m) {
     if (!m.raw_msg.empty()) j["raw_msg"] = m.raw_msg;
 }
 
-void to_json(nlohmann::json & j, const ActivityState & as) {
-    j = nlohmann::json{ {"is_complete", as.is_complete}, {"type", as.type}, {"text", as.text} };
+void to_json(json & j, const ActivityState & as) {
+    j = json{ {"is_complete", as.is_complete}, {"type", as.type}, {"text", as.text} };
     addFields(j, as.fields);
 }
 
-void to_json(nlohmann::json & j, const NixBuildState & s) {
-    j = nlohmann::json{ {"messages", s.messages} };
+void to_json(json & j, const NixBuildState & s) {
+    j = json{ {"messages", s.messages} };
 
     j["activities"] = json(json::value_t::object);
     for (const auto& [key, value] : s.activities) {
@@ -69,7 +69,7 @@ void add_pos_to_message(NixMessage & msg, std::shared_ptr<AbstractPos> pos)
     }
 }
 
-void pos_to_json(nlohmann::json & json, std::shared_ptr<AbstractPos> pos)
+void pos_to_json(json & json, std::shared_ptr<AbstractPos> pos)
 {
     if (pos) {
         json["line"] = pos->line;
@@ -177,9 +177,9 @@ struct DiffLogger : Logger {
         add_pos_to_message(msg, ei.errPos);
 
         if (loggerSettings.showTrace.get() && !ei.traces.empty()) {
-            nlohmann::json traces = nlohmann::json::array();
+            json traces = json::array();
             for (auto iter = ei.traces.rbegin(); iter != ei.traces.rend(); ++iter) {
-                nlohmann::json stackFrame;
+                json stackFrame;
                 stackFrame["raw_msg"] = iter->hint.str();
                 pos_to_json(stackFrame, iter->pos);
                 traces.push_back(stackFrame);
