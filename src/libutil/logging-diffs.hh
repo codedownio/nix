@@ -13,7 +13,7 @@
 
 namespace nix {
 
-Logger * makeJSONLogger(Logger & prevLogger);
+Logger * makeDiffLogger(Logger & prevLogger);
 
 struct ActivityState {
     bool is_complete;

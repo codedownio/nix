@@ -1,4 +1,5 @@
 #include "loggers.hh"
+#include "logging-diffs.hh"
 #include "progress-bar.hh"
 #include "util.hh"
 

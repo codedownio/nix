@@ -169,8 +169,6 @@ Logger * makeSimpleLogger(bool printBuildLogs = true);
 
 Logger * makeJSONLogger(Logger & prevLogger);
 
-Logger * makeDiffLogger(Logger & prevLogger);
-
 std::optional<nlohmann::json> parseJSONMessage(const std::string & msg);
 
 bool handleJSONLogMessage(nlohmann::json & json,
