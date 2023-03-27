@@ -16,14 +16,14 @@ namespace nix {
 Logger * makeDiffLogger(Logger & prevLogger);
 
 struct ActivityState {
-    bool is_complete;
+    bool isComplete;
     ActivityType type;
     std::string text;
     Logger::Fields fields;
     ActivityId parent;
 
     ActivityState(ActivityType _type, const std::string _text, const Logger::Fields &_fields, ActivityId _parent):
-        is_complete(false),
+        isComplete(false),
         type(_type),
         text(_text),
         fields(_fields),

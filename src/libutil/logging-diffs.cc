@@ -27,7 +27,8 @@ void addFields(json & json, const Logger::Fields & fields)
             abort();
 }
 
-void to_json(json & j, const NixMessage & m) {
+void to_json(json & j, const NixMessage & m)
+{
     j = json{ {"level", m.level} };
 
     if (m.line.has_value()) j["line"] = m.line.value();
@@ -40,12 +41,14 @@ void to_json(json & j, const NixMessage & m) {
     if (!m.raw_msg.empty()) j["raw_msg"] = m.raw_msg;
 }
 
-void to_json(json & j, const ActivityState & as) {
-    j = json{ {"is_complete", as.is_complete}, {"type", as.type}, {"text", as.text} };
+void to_json(json & j, const ActivityState & as)
+{
+    j = json{ {"is_complete", as.isComplete}, {"type", as.type}, {"text", as.text} };
     addFields(j, as.fields);
 }
 
-void to_json(json & j, const NixBuildState & s) {
+void to_json(json & j, const NixBuildState & s)
+{
     j = json{ {"messages", s.messages} };
 
     j["activities"] = json(json::value_t::object);
@@ -54,7 +57,7 @@ void to_json(json & j, const NixBuildState & s) {
     }
 }
 
-void add_pos_to_message(NixMessage & msg, std::shared_ptr<AbstractPos> pos)
+static void addPosToMessage(NixMessage & msg, std::shared_ptr<AbstractPos> pos)
 {
     if (pos) {
         msg.line = pos->line;
@@ -69,7 +72,7 @@ void add_pos_to_message(NixMessage & msg, std::shared_ptr<AbstractPos> pos)
     }
 }
 
-void pos_to_json(json & json, std::shared_ptr<AbstractPos> pos)
+static void posToJson(json & json, std::shared_ptr<AbstractPos> pos)
 {
     if (pos) {
         json["line"] = pos->line;
@@ -94,11 +97,13 @@ struct DiffLogger : Logger {
     std::atomic_bool exited;
     std::thread printerThread;
 
-    DiffLogger(Logger & prevLogger) : prevLogger(prevLogger),
-                                      last_sent(nullptr),
-                                      exitPeriodicAction(false),
-                                      exited(false),
-                                      printerThread(std::thread(&DiffLogger::periodicAction, this)) { }
+    DiffLogger(Logger & prevLogger)
+        : prevLogger(prevLogger)
+        , last_sent(nullptr)
+        , exitPeriodicAction(false)
+        , exited(false)
+        , printerThread(std::thread(&DiffLogger::periodicAction, this))
+        { }
 
     // Note: tried to move the contents of the stop() fn to ~DiffLogger, but couldn't get
     // it to run.
@@ -174,14 +179,14 @@ struct DiffLogger : Logger {
         msg.msg = oss.str();
         msg.raw_msg = ei.msg.str();
 
-        add_pos_to_message(msg, ei.errPos);
+        addPosToMessage(msg, ei.errPos);
 
         if (loggerSettings.showTrace.get() && !ei.traces.empty()) {
             json traces = json::array();
             for (auto iter = ei.traces.rbegin(); iter != ei.traces.rend(); ++iter) {
                 json stackFrame;
                 stackFrame["raw_msg"] = iter->hint.str();
-                pos_to_json(stackFrame, iter->pos);
+                posToJson(stackFrame, iter->pos);
                 traces.push_back(stackFrame);
             }
 
@@ -206,7 +211,7 @@ struct DiffLogger : Logger {
     void stopActivity(ActivityId act) override
     {
         std::lock_guard<std::mutex> guard(lock);
-        try { this->state.activities.at(act).is_complete = true; }
+        try { this->state.activities.at(act).isComplete = true; }
         catch (const std::out_of_range& oor) { }
     }
 
