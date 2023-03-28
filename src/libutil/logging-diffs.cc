@@ -1,7 +1,9 @@
+
+#include "config.hh"
 #include "logging.hh"
 #include "logging-diffs.hh"
+#include "sync.hh"
 #include "util.hh"
-#include "config.hh"
 
 #include <atomic>
 #include <chrono>
@@ -89,7 +91,7 @@ static void posToJson(json & json, std::shared_ptr<AbstractPos> pos)
 struct DiffLogger : Logger {
     Logger & prevLogger;
 
-    NixBuildState state;
+    Sync<NixBuildState> state;
     json last_sent;
     std::mutex lock;
     std::atomic_bool exitPeriodicAction;
@@ -123,8 +125,11 @@ struct DiffLogger : Logger {
 
     void periodicAction() {
         // Send initial value as a normal value
-        write(this->state);
-        this->last_sent = this->state;
+        {
+            auto state_(state.lock());
+            write(*state_);
+            this->last_sent = *state_;
+        }
 
         while (true) {
             if (this->exitPeriodicAction) break;
@@ -140,11 +145,11 @@ struct DiffLogger : Logger {
         this->sendLatestIfNecessaryUnlocked(state_);
     }
 
-    void sendLatestIfNecessaryUnlocked(NixBuildState & _state) {
-        if (this->last_sent == _state) return;
+    void sendLatestIfNecessaryUnlocked(Sync<NixBuildState>::Lock & _state) {
+        if (this->last_sent == *_state) return;
 
-        write(json::diff(this->last_sent, _state));
-        this->last_sent = this->state;
+        write(json::diff(this->last_sent, *_state));
+        this->last_sent = *_state;
     }
 
     bool isVerbose() override {
@@ -156,11 +161,11 @@ struct DiffLogger : Logger {
         prevLogger.log(lvlError, json.dump(-1, ' ', false, json::error_handler_t::replace));
     }
 
-    void log(Verbosity lvl, const FormatOrString & fs) override
+    void log(Verbosity lvl, std::string_view s) override
     {
         auto state_(state.lock());
         NixMessage msg;
-        msg.msg = fs.s;
+        msg.msg = s;
         state_->messages.push_back(msg);
 
         // Not sure why, but sometimes log messages happen after stop() is called
@@ -193,7 +198,7 @@ struct DiffLogger : Logger {
         }
 
         auto state_(state.lock());
-        state_.messages.push_back(msg);
+        state_->messages.push_back(msg);
 
         // Not sure why, but sometimes log messages happen after stop() is called
         if (this->exited) sendLatestIfNecessaryUnlocked(state_);
@@ -217,7 +222,7 @@ struct DiffLogger : Logger {
     void result(ActivityId act, ResultType type, const Fields & fields) override
     {
         auto state_(state.lock());
-        try { state_.activities.at(act).fields = fields; }
+        try { state_->activities.at(act).fields = fields; }
         catch (const std::out_of_range& oor) {
             Logger::writeToStdout("Failed to look up result of type " + type);
         }
