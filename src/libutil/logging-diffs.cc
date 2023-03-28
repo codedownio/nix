@@ -6,7 +6,6 @@
 #include <atomic>
 #include <chrono>
 #include <iostream>
-#include <mutex>
 #include <nlohmann/json.hpp>
 #include <thread>
 
@@ -137,14 +136,14 @@ struct DiffLogger : Logger {
     }
 
     void sendLatestIfNecessary() {
-        std::lock_guard<std::mutex> guard(lock);
-        this->sendLatestIfNecessaryUnlocked();
+        auto state_(state.lock());
+        this->sendLatestIfNecessaryUnlocked(state_);
     }
 
-    void sendLatestIfNecessaryUnlocked() {
-        if (this->last_sent == this->state) return;
+    void sendLatestIfNecessaryUnlocked(NixBuildState & _state) {
+        if (this->last_sent == _state) return;
 
-        write(json::diff(this->last_sent, this->state));
+        write(json::diff(this->last_sent, _state));
         this->last_sent = this->state;
     }
 
@@ -159,13 +158,13 @@ struct DiffLogger : Logger {
 
     void log(Verbosity lvl, const FormatOrString & fs) override
     {
-        std::lock_guard<std::mutex> guard(lock);
+        auto state_(state.lock());
         NixMessage msg;
         msg.msg = fs.s;
-        this->state.messages.push_back(msg);
+        state_->messages.push_back(msg);
 
         // Not sure why, but sometimes log messages happen after stop() is called
-        if (this->exited) sendLatestIfNecessaryUnlocked();
+        if (this->exited) sendLatestIfNecessaryUnlocked(state_);
     }
 
     void logEI(const ErrorInfo & ei) override
@@ -193,32 +192,32 @@ struct DiffLogger : Logger {
             msg.trace = traces;
         }
 
-        std::lock_guard<std::mutex> guard(lock);
-        this->state.messages.push_back(msg);
+        auto state_(state.lock());
+        state_.messages.push_back(msg);
 
         // Not sure why, but sometimes log messages happen after stop() is called
-        if (this->exited) sendLatestIfNecessaryUnlocked();
+        if (this->exited) sendLatestIfNecessaryUnlocked(state_);
     }
 
     void startActivity(ActivityId act, Verbosity lvl, ActivityType type,
         const std::string & s, const Fields & fields, ActivityId parent) override
     {
         ActivityState as(type, s, fields, parent);
-        std::lock_guard<std::mutex> guard(lock);
-        this->state.activities.insert(std::pair<ActivityId, ActivityState>(act, as));
+        auto state_(state.lock());
+        state_->activities.insert(std::pair<ActivityId, ActivityState>(act, as));
     }
 
     void stopActivity(ActivityId act) override
     {
-        std::lock_guard<std::mutex> guard(lock);
-        try { this->state.activities.at(act).isComplete = true; }
+        auto state_(state.lock());
+        try { state_->activities.at(act).isComplete = true; }
         catch (const std::out_of_range& oor) { }
     }
 
     void result(ActivityId act, ResultType type, const Fields & fields) override
     {
-        std::lock_guard<std::mutex> guard(lock);
-        try { this->state.activities.at(act).fields = fields; }
+        auto state_(state.lock());
+        try { state_.activities.at(act).fields = fields; }
         catch (const std::out_of_range& oor) {
             Logger::writeToStdout("Failed to look up result of type " + type);
         }
