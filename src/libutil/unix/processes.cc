@@ -127,7 +127,7 @@ pid_t Pid::release()
 
 void killUser(uid_t uid)
 {
-    debug("killing all processes running under uid '%1%'", uid);
+    warn("killing all processes running under uid '%1%'", uid);
 
     assert(uid != 0); /* just to be safe... */
 
