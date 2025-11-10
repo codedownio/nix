@@ -47,7 +47,7 @@ this_library = library(
   # TODO: Remove `-lrapidcheck` when https://github.com/emil-e/rapidcheck/pull/326
   #       is available. See also ../libutil/build.meson
   link_args : linker_export_flags + [ '-lrapidcheck' ],
-  prelink : true, # For C++ static initializers
+  prelink : host_machine.system() != 'darwin', # For C++ static initializers, not supported on macOS
   install : true,
 )
 
