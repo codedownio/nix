@@ -182,12 +182,19 @@ endif
 
 include_dirs = [ include_directories('.') ]
 
+# Use system iconv on macOS static builds with symbol aliasing
+iconv_link_args = []
+if get_option('default_library') == 'static' and host_machine.system() == 'darwin'
+  # Use system iconv and create aliases for GNU-style symbols
+  iconv_link_args = ['-liconv', '-Wl,-alias,_iconv,_libiconv', '-Wl,-alias,_iconv_open,_libiconv_open', '-Wl,-alias,_iconv_close,_libiconv_close']
+endif
+
 this_exe = executable(
   meson.project_name(),
   sources,
   dependencies : deps_private_subproject + deps_private + deps_other,
   include_directories : include_dirs,
-  link_args : linker_export_flags,
+  link_args : linker_export_flags + iconv_link_args,
   install : true,
   cpp_pch : do_pch ? [ 'pch/precompiled-headers.hh' ] : [],
 )
