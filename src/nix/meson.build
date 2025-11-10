@@ -183,12 +183,18 @@ endif
 
 include_dirs = [ include_directories('.') ]
 
+# On macOS static builds, ensure system iconv is linked
+iconv_link_args = []
+if get_option('default_library') == 'static' and host_machine.system() == 'darwin'
+  iconv_link_args = ['-liconv']
+endif
+
 this_exe = executable(
   meson.project_name(),
   sources,
   dependencies : deps_private_subproject + deps_private + deps_other,
   include_directories : include_dirs,
-  link_args : linker_export_flags,
+  link_args : linker_export_flags + iconv_link_args,
   install : true,
   cpp_pch : do_pch ? [ 'pch/precompiled-headers.hh' ] : [],
 )

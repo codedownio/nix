@@ -82,6 +82,10 @@ deps_public += libarchive
 if get_option('default_library') == 'static'
   # Workaround until https://github.com/libarchive/libarchive/issues/1446 is fixed
   add_project_arguments('-lz', language : 'cpp')
+  # On macOS, use system iconv instead of static version
+  if host_machine.system() == 'darwin'
+    add_project_link_arguments('-liconv', language : 'cpp')
+  endif
 endif
 
 sodium = dependency('libsodium', 'sodium')
@@ -202,7 +206,7 @@ this_library = library(
   dependencies : deps_public + deps_private + deps_other,
   include_directories : include_dirs,
   link_args : linker_export_flags,
-  prelink : true, # For C++ static initializers
+  prelink : host_machine.system() != 'darwin', # For C++ static initializers, not supported on macOS
   install : true,
   cpp_pch : do_pch ? [ 'pch/precompiled-headers.hh' ] : [],
 )
