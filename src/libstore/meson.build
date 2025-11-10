@@ -178,6 +178,8 @@ foreach header : [
 endforeach
 
 busybox = find_program(get_option('sandbox-shell'), required : false)
+# When busybox is not available, use bash as fallback for embedded shell
+bash = find_program('bash', required : get_option('embedded-sandbox-shell'))
 
 configdata_priv.set(
   'HAVE_EMBEDDED_SANDBOX_SHELL',
@@ -192,10 +194,12 @@ endif
 
 if get_option('embedded-sandbox-shell')
   hexdump = find_program('hexdump', native : true)
+  # Use busybox if available, otherwise use bash
+  embed_shell = busybox.found() ? busybox : bash
   embedded_sandbox_shell_gen = custom_target(
     'embedded-sandbox-shell.gen.hh',
     command : [ hexdump, '-v', '-e', '1/1 "0x%x," "\n"' ],
-    input : busybox.full_path(),
+    input : embed_shell.full_path(),
     output : 'embedded-sandbox-shell.gen.hh',
     capture : true,
     feed : true,
@@ -381,7 +385,7 @@ this_library = library(
   dependencies : deps_public + deps_private + deps_other,
   include_directories : include_dirs,
   link_args : linker_export_flags,
-  prelink : true, # For C++ static initializers
+  prelink : host_machine.system() != 'darwin', # For C++ static initializers, not supported on macOS
   install : true,
   cpp_pch : do_pch ? [ 'pch/precompiled-headers.hh' ] : [],
 )
