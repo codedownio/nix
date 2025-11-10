@@ -246,7 +246,7 @@ this_library = library(
   include_directories : include_dirs,
   link_args : linker_export_flags,
   link_whole : [ parser_library ],
-  prelink : true, # For C++ static initializers
+  prelink : host_machine.system() != 'darwin', # For C++ static initializers, not supported on macOS
   install : true,
   cpp_pch : do_pch ? [ 'pch/precompiled-headers.hh' ] : [],
 )
