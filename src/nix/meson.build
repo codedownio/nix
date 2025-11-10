@@ -183,10 +183,11 @@ endif
 
 include_dirs = [ include_directories('.') ]
 
-# On macOS static builds, ensure system iconv is linked
+# Use system iconv on macOS static builds with symbol aliasing
 iconv_link_args = []
 if get_option('default_library') == 'static' and host_machine.system() == 'darwin'
-  iconv_link_args = ['-liconv']
+  # Use system iconv and create aliases for GNU-style symbols
+  iconv_link_args = ['-liconv', '-Wl,-alias,_iconv,_libiconv', '-Wl,-alias,_iconv_open,_libiconv_open', '-Wl,-alias,_iconv_close,_libiconv_close']
 endif
 
 this_exe = executable(

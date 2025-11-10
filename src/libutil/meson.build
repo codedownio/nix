@@ -82,10 +82,6 @@ deps_public += libarchive
 if get_option('default_library') == 'static'
   # Workaround until https://github.com/libarchive/libarchive/issues/1446 is fixed
   add_project_arguments('-lz', language : 'cpp')
-  # On macOS, use system iconv instead of static version
-  if host_machine.system() == 'darwin'
-    add_project_link_arguments('-liconv', language : 'cpp')
-  endif
 endif
 
 sodium = dependency('libsodium', 'sodium')
