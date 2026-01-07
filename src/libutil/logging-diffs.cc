@@ -91,6 +91,7 @@ static void posToJson(json & json, std::shared_ptr<const Pos> pos)
 
 struct DiffLogger : Logger {
     Descriptor fd;
+    std::optional<std::set<ActivityType>> activity_types_to_include;
 
     Sync<NixBuildState> state;
     json last_sent;
@@ -99,8 +100,9 @@ struct DiffLogger : Logger {
     std::atomic_bool exited;
     std::thread printerThread;
 
-    DiffLogger(Descriptor fd)
+    DiffLogger(Descriptor fd, std::optional<std::set<ActivityType>> activity_types_to_include)
         : fd(fd)
+        , activity_types_to_include(activity_types_to_include)
         , last_sent(nullptr)
         , exitPeriodicAction(false)
         , exited(false)
@@ -209,30 +211,49 @@ struct DiffLogger : Logger {
         const std::string & s, const Fields & fields, ActivityId parent) override
     {
         ActivityState as(type, s, fields, parent);
+
         auto state_(state.lock());
-        state_->activities.insert(std::pair<ActivityId, ActivityState>(act, as));
+
+        if (!activity_types_to_include || activity_types_to_include->contains(type)) {
+            state_->activities.insert(std::pair<ActivityId, ActivityState>(act, as));
+        } else {
+            state_->ignored_activites.insert(act);
+        }
     }
 
     void stopActivity(ActivityId act) override
     {
         auto state_(state.lock());
-        try { state_->activities.at(act).isComplete = true; }
-        catch (const std::out_of_range& oor) { }
+
+        if (activity_types_to_include && state_->ignored_activites.contains(act)) {
+            state_->ignored_activites.erase(act);
+        } else {
+            try { state_->activities.at(act).isComplete = true; }
+            catch (const std::out_of_range& oor) { }
+        }
     }
 
     void result(ActivityId act, ResultType type, const Fields & fields) override
     {
         auto state_(state.lock());
-        try { state_->activities.at(act).fields = fields; }
-        catch (const std::out_of_range& oor) {
-            Logger::writeToStdout("Failed to look up result of type " + std::to_string(static_cast<int>(type)));
+
+        if (!activity_types_to_include || !state_->ignored_activites.contains(act)) {
+            try { state_->activities.at(act).fields = fields; }
+            catch (const std::out_of_range& oor) {
+                Logger::writeToStdout("Failed to look up activity " + std::to_string(static_cast<int>(type)) + " to write result of type " + std::to_string(static_cast<int>(type)));
+            }
         }
     }
 };
 
+std::unique_ptr<Logger> makeDiffLogger(Descriptor fd, std::optional<std::set<ActivityType>> activity_types_to_include)
+{
+    return std::make_unique<DiffLogger>(fd, activity_types_to_include);
+}
+
 std::unique_ptr<Logger> makeDiffLogger(Descriptor fd)
 {
-    return std::make_unique<DiffLogger>(fd);
+    return std::make_unique<DiffLogger>(fd, std::nullopt);
 }
 
 }
