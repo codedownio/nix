@@ -10,10 +10,12 @@
 #include <list>
 #include <map>
 #include <optional>
+#include <set>
 
 namespace nix {
 
 std::unique_ptr<Logger> makeDiffLogger(Descriptor fd);
+std::unique_ptr<Logger> makeDiffLogger(Descriptor fd, std::optional<std::set<ActivityType>> activity_types_to_include);
 
 struct ActivityState {
     bool isComplete;
@@ -45,6 +47,7 @@ struct NixMessage {
 
 struct NixBuildState {
     std::map<ActivityId, ActivityState> activities;
+    std::set<ActivityId> ignored_activites;
     std::list<NixMessage> messages;
 };
 
