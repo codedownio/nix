@@ -3,9 +3,13 @@
 #include "nix/util/environment-variables.hh"
 #include "nix/main/progress-bar.hh"
 
+#include <sstream>
+
 namespace nix {
 
 LogFormat defaultLogFormat = LogFormat::raw;
+
+std::optional<std::set<ActivityType>> diffActivitiesToInclude = std::nullopt;
 
 LogFormat parseLogFormat(const std::string & logFormatStr)
 {
@@ -34,7 +38,7 @@ std::unique_ptr<Logger> makeDefaultLogger()
     case LogFormat::internalJSON:
         return makeJSONLogger(getStandardError());
     case LogFormat::diffs:
-        return makeDiffLogger(getStandardError());
+        return makeDiffLogger(getStandardError(), diffActivitiesToInclude);
     case LogFormat::bar:
         return makeProgressBar();
     case LogFormat::barWithLogs: {
@@ -56,6 +60,39 @@ void setLogFormat(const LogFormat & logFormat)
 {
     defaultLogFormat = logFormat;
     logger = makeDefaultLogger();
+}
+
+void setLogDiffsIncludeActivityIds(const std::string & activityIdsStr)
+{
+    if (activityIdsStr.empty()) {
+        diffActivitiesToInclude = std::nullopt;
+    } else {
+        std::set<ActivityType> activityTypes;
+        std::stringstream ss(activityIdsStr);
+        std::string item;
+
+        while (std::getline(ss, item, ',')) {
+            // Trim whitespace
+            item.erase(item.find_last_not_of(" \t\n\r\f\v") + 1);
+            item.erase(0, item.find_first_not_of(" \t\n\r\f\v"));
+
+            if (!item.empty()) {
+                try {
+                    int activityTypeInt = std::stoi(item);
+                    activityTypes.insert(static_cast<ActivityType>(activityTypeInt));
+                } catch (const std::exception& e) {
+                    throw Error("invalid activity type '%s' in activity IDs list", item);
+                }
+            }
+        }
+
+        diffActivitiesToInclude = activityTypes;
+    }
+
+    // If we're currently using diffs format, recreate the logger with the new filter
+    if (defaultLogFormat == LogFormat::diffs) {
+        logger = makeDefaultLogger();
+    }
 }
 
 } // namespace nix

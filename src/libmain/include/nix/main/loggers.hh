@@ -17,4 +17,6 @@ enum class LogFormat {
 void setLogFormat(const std::string & logFormatStr);
 void setLogFormat(const LogFormat & logFormat);
 
+void setLogDiffsIncludeActivityIds(const std::string & activityIdsStr);
+
 } // namespace nix

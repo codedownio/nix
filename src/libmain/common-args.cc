@@ -72,6 +72,14 @@ MixCommonArgs::MixCommonArgs(const std::string & programName)
     });
 
     addFlag({
+        .longName = "log-diffs-include-activity-ids",
+        .description = "Comma-separated list of activity IDs to include when using 'diffs' logging.",
+        .category = loggingCategory,
+        .labels = {"diffs-include-activity-ids"},
+        .handler = {[](std::string format) { setLogDiffsIncludeActivityIds(format); }},
+    });
+
+    addFlag({
         .longName = "max-jobs",
         .shortName = 'j',
         .description = "The maximum number of parallel builds.",
