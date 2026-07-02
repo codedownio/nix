@@ -141,12 +141,27 @@ private:
         const StorePath & path, Callback<std::shared_ptr<const ValidPathInfo>> callback) noexcept override;
 
     /**
-     * Check lower store if upper DB does not have.
-     *
-     * In addition, copy up metadata for lower store objects (and their
-     * closure). (I.e. Optimistically cache in the upper DB.)
+     * Check lower store if upper DB does not have. A pure read: does NOT copy anything into the
+     * upper DB (unlike before). The upper DB only needs a lower path's metadata when we are about
+     * to write something referencing it; that sync happens on demand via `ensureInUpper` (called
+     * from `registerValidPaths`), not on every validity check.
      */
     bool isValidPathUncached(const StorePath & path) override;
+
+    /**
+     * Copy `path`'s metadata (and, recursively, that of its references) up from the lower store into
+     * the upper DB, so a subsequent write that references it resolves. No-op if already in the upper
+     * or not valid in the lower. This is the on-demand replacement for the eager closure sync that
+     * `isValidPathUncached` used to do on every call.
+     */
+    void ensureInUpper(const StorePath & path);
+
+    /**
+     * Read the output map from whichever layer has the .drv (upper else lower), rather than letting
+     * the base's raw upper-DB lookup throw for a lower-only .drv.
+     */
+    std::map<std::string, std::optional<StorePath>>
+    queryStaticPartialDerivationOutputMap(const StorePath & path) override;
 
     /**
      * Check the lower store and upper DB.

@@ -135,20 +135,35 @@ void LocalOverlayStore::queryRealisationUncached(
 
 bool LocalOverlayStore::isValidPathUncached(const StorePath & path)
 {
-    auto res = LocalStore::isValidPathUncached(path);
-    if (res)
-        return res;
-    res = lowerStore->isValidPath(path);
-    if (res) {
-        // Get path info from lower store so upper DB genuinely has it.
-        auto p = lowerStore->queryPathInfo(path);
-        // recur on references, syncing entire closure.
-        for (auto & r : p->references)
-            if (r != path)
-                isValidPath(r);
-        LocalStore::registerValidPath(*p);
-    }
-    return res;
+    // A validity check is a *read*: answer from the upper DB, falling back to the lower, WITHOUT
+    // copying anything into the upper. Previously this eagerly synced the path and its entire
+    // reference closure into the upper DB on every call. During a build's evaluation that means
+    // copying the whole touched closure (nixpkgs & friends -- ~100s of MB of path-info) into a fresh
+    // per-build upper DB, dwarfing the actual work. The upper DB only *needs* an entry for a lower
+    // path when we are about to write something that references it (registration); we now do that
+    // sync on demand there instead (see ensureInUpper / registerValidPaths).
+    return LocalStore::isValidPathUncached(path) || lowerStore->isValidPath(path);
+}
+
+void LocalOverlayStore::ensureInUpper(const StorePath & path)
+{
+    // Ensure `path` has a row in the upper DB (copying its metadata -- and, recursively, that of
+    // its references -- up from the lower store), so a subsequent write that references it can look
+    // it up. This is the sync that isValidPathUncached used to do eagerly; we now call it only where
+    // the upper DB genuinely must have the entry (a reference of a path being registered, or a .drv
+    // whose output map we register). References are synced first, so each path's own reference rows
+    // resolve when it is registered. No-op if already in the upper, or not valid in the lower.
+    if (LocalStore::isValidPathUncached(path))
+        return;
+    if (!lowerStore->isValidPath(path))
+        return;
+    auto p = lowerStore->queryPathInfo(path);
+    for (auto & r : p->references)
+        if (r != path)
+            ensureInUpper(r);
+    // Register directly against the base (not the virtual registerValidPath, which would re-enter
+    // our override) now that the references are present.
+    LocalStore::registerValidPaths({{p->path, *p}});
 }
 
 void LocalOverlayStore::queryReferrers(const StorePath & path, StorePathSet & referrers)
@@ -181,6 +196,16 @@ std::optional<StorePath> LocalOverlayStore::queryPathFromHashPart(const std::str
 
 void LocalOverlayStore::registerValidPaths(const ValidPathInfos & infos)
 {
+    // Every reference of a path we register must have a row in the upper DB, because the base
+    // registerValidPaths resolves each reference with a raw upper-DB lookup (queryValidPathId) that
+    // throws "path is not valid" on a miss. Sync those references (and their closures) up from the
+    // lower store now. Since isValidPathUncached no longer syncs eagerly, this on-demand sync -- of
+    // just what the writes actually reference -- is what keeps registration correct.
+    for (auto & [_, info] : infos)
+        for (auto & r : info.references)
+            if (r != info.path)
+                ensureInUpper(r);
+
     // First, get any from lower store so we merge
     {
         StorePathSet notInUpper;
@@ -195,6 +220,18 @@ void LocalOverlayStore::registerValidPaths(const ValidPathInfos & infos)
     }
     // Then do original request
     LocalStore::registerValidPaths(infos);
+}
+
+std::map<std::string, std::optional<StorePath>>
+LocalOverlayStore::queryStaticPartialDerivationOutputMap(const StorePath & path)
+{
+    // The base looks up the .drv's row with a raw upper-DB query (queryValidPathId), which throws
+    // for a .drv that lives only in the lower store. Since isValidPathUncached no longer syncs the
+    // .drv up on validity checks, read the output map from whichever layer actually has the .drv --
+    // preferring the upper, else the lower -- rather than forcing a sync.
+    if (LocalStore::isValidPathUncached(path))
+        return LocalStore::queryStaticPartialDerivationOutputMap(path);
+    return lowerStore->queryStaticPartialDerivationOutputMap(path);
 }
 
 void LocalOverlayStore::collectGarbage(const GCOptions & options, GCResults & results)
