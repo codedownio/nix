@@ -149,6 +149,12 @@ private:
     bool isValidPathUncached(const StorePath & path) override;
 
     /**
+     * lazy-derivation-writes: probe the upper layer's physical dir for the drv file — a local
+     * stat instead of a lookup through the merged overlay (FUSE + store round-trip on miss).
+     */
+    std::optional<Path> lazyDrvProbePath(const StorePath & path) override;
+
+    /**
      * Copy `path`'s metadata (and, recursively, that of its references) up from the lower store into
      * the upper DB, so a subsequent write that references it resolves. No-op if already in the upper
      * or not valid in the lower. This is the on-demand replacement for the eager closure sync that

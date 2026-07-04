@@ -137,7 +137,11 @@ StorePath writeDerivation(Store & store, const Derivation & drv, RepairFlag repa
                 .references = references,
             });
         auto real = store.toRealPath(path);
-        if (!pathExists(real)) {
+        // Existence probe via the store's cheap physical location when available (upper layer of
+        // an overlay store): a local stat, not a negative lookup through the merged view. The
+        // write itself goes through the merged path so the overlay mount stays coherent.
+        auto probe = store.lazyDrvProbePath(path).value_or(real);
+        if (!pathExists(probe)) {
             auto tmp = real + ".tmp";
             writeFile(tmp, contents, 0444);
             std::filesystem::rename(tmp, real);

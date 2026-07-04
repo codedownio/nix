@@ -871,6 +871,16 @@ public:
      */
     virtual std::optional<TrustedFlag> isTrustedClient() = 0;
 
+    /**
+     * lazy-derivation-writes: the physical filesystem location to probe for (and consult before
+     * writing) an unregistered `.drv` file, when a cheap local check exists that avoids the
+     * store's merged/network view. `std::nullopt` means use `toRealPath`.
+     */
+    virtual std::optional<Path> lazyDrvProbePath(const StorePath & path)
+    {
+        return std::nullopt;
+    }
+
     virtual Path toRealPath(const Path & storePath)
     {
         return storePath;
