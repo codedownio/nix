@@ -142,7 +142,13 @@ bool LocalOverlayStore::isValidPathUncached(const StorePath & path)
     // per-build upper DB, dwarfing the actual work. The upper DB only *needs* an entry for a lower
     // path when we are about to write something that references it (registration); we now do that
     // sync on demand there instead (see ensureInUpper / registerValidPaths).
-    return LocalStore::isValidPathUncached(path) || lowerStore->isValidPath(path);
+    if (LocalStore::isValidPathUncached(path) || lowerStore->isValidPath(path))
+        return true;
+    // lazy-derivation-writes: a derivation written as a plain file (writeDerivation skips
+    // registration under this setting) counts as valid, so goals/dry-run/readDerivation work
+    // without any database row. Only .drv paths get this treatment; their contents are
+    // content-addressed, so a present file is trustworthy.
+    return settings.lazyDerivationWrites && path.isDerivation() && pathExists(toRealPath(printStorePath(path)));
 }
 
 void LocalOverlayStore::ensureInUpper(const StorePath & path)

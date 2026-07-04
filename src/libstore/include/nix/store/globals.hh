@@ -457,6 +457,21 @@ public:
 
     Setting<bool> useSQLiteWAL{this, !isWSL1(), "use-sqlite-wal", "Whether SQLite should use WAL mode."};
 
+    Setting<bool> lazyDerivationWrites{
+        this,
+        false,
+        "lazy-derivation-writes",
+        R"(
+          If set to `true`, evaluation writes `.drv` files directly into the store directory
+          WITHOUT registering them in the store database, and (on a local-overlay store) a
+          derivation whose file is present in the store is considered valid. This skips the
+          per-derivation database registration that dominates evaluation time on a fresh
+          overlay store (registering a large graph plus its reference closure), at the cost
+          of the `.drv` paths having no metadata (no `queryPathInfo`, no NAR export). Intended
+          for eval-then-realise-elsewhere pipelines (e.g. snix-build) where the `.drv` files
+          are consumed as plain files. Experimental.
+        )"};
+
 #ifndef _WIN32
     // FIXME: remove this option, `fsync-store-paths` is faster.
     Setting<bool> syncBeforeRegistering{

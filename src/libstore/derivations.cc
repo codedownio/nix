@@ -13,6 +13,8 @@
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 #include <nlohmann/json.hpp>
+#include <filesystem>
+#include "nix/util/file-system.hh"
 
 namespace nix {
 
@@ -115,23 +117,42 @@ StorePath writeDerivation(Store & store, const Derivation & drv, RepairFlag repa
        held during a garbage collection). */
     auto suffix = std::string(drv.name) + drvExtension;
     auto contents = drv.unparse(store, false);
-    return readOnly || settings.readOnlyMode ? store.makeFixedOutputPathFromCA(
-                                                   suffix,
-                                                   TextInfo{
-                                                       .hash = hashString(HashAlgorithm::SHA256, contents),
-                                                       .references = std::move(references),
-                                                   })
-                                             : ({
-                                                   StringSource s{contents};
-                                                   store.addToStoreFromDump(
-                                                       s,
-                                                       suffix,
-                                                       FileSerialisationMethod::Flat,
-                                                       ContentAddressMethod::Raw::Text,
-                                                       HashAlgorithm::SHA256,
-                                                       references,
-                                                       repair);
-                                               });
+    if (readOnly || settings.readOnlyMode)
+        return store.makeFixedOutputPathFromCA(
+            suffix,
+            TextInfo{
+                .hash = hashString(HashAlgorithm::SHA256, contents),
+                .references = std::move(references),
+            });
+    /* lazy-derivation-writes: write the .drv as a plain file in the store directory, skipping
+       database registration entirely (see the setting's doc). Registration of a derivation
+       requires its whole reference closure in the local database — on a fresh overlay store
+       that sync dwarfs evaluation itself. Consumers treat file-present derivations as valid
+       (LocalOverlayStore::isValidPathUncached). */
+    if (settings.lazyDerivationWrites) {
+        auto path = store.makeFixedOutputPathFromCA(
+            suffix,
+            TextInfo{
+                .hash = hashString(HashAlgorithm::SHA256, contents),
+                .references = references,
+            });
+        auto real = store.toRealPath(path);
+        if (!pathExists(real)) {
+            auto tmp = real + ".tmp";
+            writeFile(tmp, contents, 0444);
+            std::filesystem::rename(tmp, real);
+        }
+        return path;
+    }
+    StringSource s{contents};
+    return store.addToStoreFromDump(
+        s,
+        suffix,
+        FileSerialisationMethod::Flat,
+        ContentAddressMethod::Raw::Text,
+        HashAlgorithm::SHA256,
+        references,
+        repair);
 }
 
 namespace {
