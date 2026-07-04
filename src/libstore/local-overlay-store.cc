@@ -1,4 +1,5 @@
 #include <regex>
+#include "nix/store/globals.hh"
 
 #include "nix/store/local-overlay-store.hh"
 #include "nix/util/callback.hh"
