@@ -11,6 +11,8 @@
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 #include <nlohmann/json.hpp>
+#include <filesystem>
+#include "nix/util/file-system.hh"
 #include <optional>
 
 namespace nix {
@@ -137,6 +139,21 @@ StorePath computeStorePath(const StoreDirConfig & store, const Derivation & drv)
 StorePath Store::writeDerivation(const Derivation & drv, RepairFlag repair)
 {
     auto [suffix, contents, references, path] = infoForDerivation(*this, drv);
+
+    /* lazy-derivation-writes: write the .drv as a plain file in the store directory, skipping
+       database registration entirely (see the setting's doc). Registration of a derivation
+       requires its whole reference closure in the local database — on a fresh overlay store
+       that sync dwarfs evaluation itself. Consumers treat file-present derivations as valid
+       (LocalOverlayStore::isValidPathUncached). */
+    if (settings.lazyDerivationWrites) {
+        auto real = toRealPath(path);
+        if (!pathExists(real)) {
+            auto tmp = real + ".tmp";
+            writeFile(tmp, contents, 0444);
+            std::filesystem::rename(tmp, real);
+        }
+        return path;
+    }
 
     /* In case the derivation is already valid, we bail out early since that's
        faster. But we need to make sure that the derivation has a corresponding
