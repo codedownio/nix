@@ -146,15 +146,19 @@ StorePath Store::writeDerivation(const Derivation & drv, RepairFlag repair)
        that sync dwarfs evaluation itself. Consumers treat file-present derivations as valid
        (LocalOverlayStore::isValidPathUncached). */
     if (settings.lazyDerivationWrites) {
-        auto real = toRealPath(path);
-        // Existence probe via the store's cheap physical location when available (upper layer of
-        // an overlay store): a local stat, not a negative lookup through the merged view. The
-        // write itself goes through the merged path so the overlay mount stays coherent.
-        auto probe = lazyDrvProbePath(path).value_or(real);
+        // Probe AND write via the store's cheap physical location when available (the upper
+        // layer of an overlay store): local stats and writes, instead of lookups through the
+        // merged view — each merged-path create/rename does negative lookups against the lower
+        // (a FUSE store: one round trip per miss; ~11k of them for a nixpkgs-sized graph).
+        // Writing into the upper of a mounted overlay is coherent here because nothing does a
+        // merged-view lookup of a drv name before it is written (later lookups find it fresh);
+        // a name merged-looked-up BEFORE being written would be undefined overlayfs behavior,
+        // so drv reads must stay after writes (which evaluation guarantees).
+        auto probe = lazyDrvProbePath(path).value_or(toRealPath(path));
         if (!pathExists(probe)) {
-            auto tmp = real + ".tmp";
+            auto tmp = probe + ".tmp";
             writeFile(tmp, contents, 0444);
-            std::filesystem::rename(tmp, real);
+            std::filesystem::rename(tmp, probe);
         }
         return path;
     }
