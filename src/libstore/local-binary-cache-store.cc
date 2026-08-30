@@ -120,13 +120,27 @@ protected:
     }
 };
 
+/* A cache the caller can only read is still perfectly usable as a substituter,
+   and `upsertFile` creates the parent directory it needs anyway, so a cache
+   directory we can't write to must not stop the store from opening. */
+static void createCacheDir(const std::filesystem::path & dir)
+{
+    try {
+        createDirs(dir);
+    } catch (SystemError & e) {
+        if (e.is(std::errc::read_only_file_system) || e.is(std::errc::permission_denied))
+            return;
+        throw;
+    }
+}
+
 void LocalBinaryCacheStore::init()
 {
-    createDirs(config->binaryCacheDir / "nar");
-    createDirs(config->binaryCacheDir / realisationsPrefix);
+    createCacheDir(config->binaryCacheDir / "nar");
+    createCacheDir(config->binaryCacheDir / realisationsPrefix);
     if (config->writeDebugInfo)
-        createDirs(config->binaryCacheDir / "debuginfo");
-    createDirs(config->binaryCacheDir / "log");
+        createCacheDir(config->binaryCacheDir / "debuginfo");
+    createCacheDir(config->binaryCacheDir / "log");
     BinaryCacheStore::init();
 }
 
