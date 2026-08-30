@@ -89,6 +89,8 @@ static void posToJson(json & json, std::shared_ptr<const Pos> pos)
     }
 }
 
+namespace {
+
 struct DiffLogger : Logger {
     Descriptor fd;
     std::optional<std::set<ActivityType>> activity_types_to_include;
@@ -245,6 +247,8 @@ struct DiffLogger : Logger {
         }
     }
 };
+
+} // namespace
 
 std::unique_ptr<Logger> makeDiffLogger(Descriptor fd, std::optional<std::set<ActivityType>> activity_types_to_include)
 {
