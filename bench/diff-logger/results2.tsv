@@ -1,0 +1,17 @@
+flood	dirty/diffs	1	12.398 11.536 0.364	0
+flood	incr/diffs	1	9.297 9.158 0.266	0
+flood	dirty/diffs	2	10.013 9.738 0.267	0
+flood	incr/diffs	2	8.579 8.504 0.169	0
+flood	dirty/diffs	3	10.320 9.824 0.274	0
+flood	incr/diffs	3	8.698 8.653 0.175	0
+burst	dirty/diffs	1	1.853 1.225 0.324	0
+burst	incr/diffs	1	1.029 0.843 0.192	0
+burst	dirty/diffs	2	1.939 1.317 0.319	0
+burst	incr/diffs	2	0.960 0.773 0.186	0
+burst	dirty/diffs	3	1.306 0.985 0.310	0
+burst	incr/diffs	3	0.978 0.796 0.178	0
+copy	dirty/diffs	1	1.517 1.893 5.311	0
+copy	incr/diffs	1	1.039 1.876 4.701	0
+copy	dirty/diffs	2	1.214 1.791 5.772	0
+copy	incr/diffs	2	1.031 1.739 4.597	0
+stall	incr/diffs	1	2.94	-	-	0
