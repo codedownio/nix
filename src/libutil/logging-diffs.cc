@@ -96,6 +96,7 @@ struct DiffLogger : Logger {
     std::optional<std::set<ActivityType>> activity_types_to_include;
 
     Sync<NixBuildState> state;
+    bool dirty = false; // guarded by the state lock
     json last_sent;
     std::mutex lock;
     std::atomic_bool exitPeriodicAction;
@@ -132,8 +133,10 @@ struct DiffLogger : Logger {
         // Send initial value as a normal value
         {
             auto state_(state.lock());
-            write(*state_);
-            this->last_sent = *state_;
+            json current = *state_;
+            write(current);
+            this->last_sent = std::move(current);
+            this->dirty = false;
         }
 
         while (true) {
@@ -151,10 +154,14 @@ struct DiffLogger : Logger {
     }
 
     void sendLatestIfNecessaryUnlocked(Sync<NixBuildState>::WriteLock & _state) {
-        if (this->last_sent == *_state) return;
+        if (!this->dirty) return;
+        this->dirty = false;
 
-        write(json::diff(this->last_sent, *_state));
-        this->last_sent = *_state;
+        json current = *_state;
+        if (this->last_sent == current) return;
+
+        write(json::diff(this->last_sent, current));
+        this->last_sent = std::move(current);
     }
 
     bool isVerbose() override {
@@ -172,6 +179,7 @@ struct DiffLogger : Logger {
         NixMessage msg;
         msg.msg = s;
         state_->messages.push_back(msg);
+        this->dirty = true;
 
         // Not sure why, but sometimes log messages happen after stop() is called
         if (this->exited) sendLatestIfNecessaryUnlocked(state_);
@@ -204,6 +212,7 @@ struct DiffLogger : Logger {
 
         auto state_(state.lock());
         state_->messages.push_back(msg);
+        this->dirty = true;
 
         // Not sure why, but sometimes log messages happen after stop() is called
         if (this->exited) sendLatestIfNecessaryUnlocked(state_);
@@ -218,6 +227,7 @@ struct DiffLogger : Logger {
 
         if (!activity_types_to_include || activity_types_to_include->contains(type)) {
             state_->activities.insert(std::pair<ActivityId, ActivityState>(act, as));
+            this->dirty = true;
         } else {
             state_->ignored_activites.insert(act);
         }
@@ -230,7 +240,10 @@ struct DiffLogger : Logger {
         if (activity_types_to_include && state_->ignored_activites.contains(act)) {
             state_->ignored_activites.erase(act);
         } else {
-            try { state_->activities.at(act).isComplete = true; }
+            try {
+                state_->activities.at(act).isComplete = true;
+                this->dirty = true;
+            }
             catch (const std::out_of_range& oor) { }
         }
     }
@@ -240,7 +253,10 @@ struct DiffLogger : Logger {
         auto state_(state.lock());
 
         if (!activity_types_to_include || !state_->ignored_activites.contains(act)) {
-            try { state_->activities.at(act).fields = fields; }
+            try {
+                state_->activities.at(act).fields = fields;
+                this->dirty = true;
+            }
             catch (const std::out_of_range& oor) {
                 Logger::writeToStdout("Failed to look up activity " + std::to_string(static_cast<int>(type)) + " to write result of type " + std::to_string(static_cast<int>(type)));
             }
