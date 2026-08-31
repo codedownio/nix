@@ -33,7 +33,7 @@ struct ActivityState {
 };
 
 struct NixMessage {
-    int level;
+    int level = 0;
 
     std::optional<int> line;
     std::optional<int> column;

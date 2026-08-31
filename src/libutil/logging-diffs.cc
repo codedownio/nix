@@ -291,6 +291,7 @@ struct DiffLogger : Logger {
         {
             auto state_(state.lock());
             NixMessage msg;
+            msg.level = lvl;
             msg.msg = s;
             state_->messages.push_back(msg);
         }
