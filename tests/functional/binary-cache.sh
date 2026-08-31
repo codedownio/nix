@@ -370,3 +370,24 @@ _NIX_FORCE_HTTP=1 expectStderr 1 nix store info --store "file://$cacheDir" --ref
 
 # Remove --refresh and it should work again.
 _NIX_FORCE_HTTP=1 nix store info --store "file://$cacheDir"
+
+# A cache we can only read from is still usable as a substituter: opening it
+# must not fail just because the write-side directories can't be created.
+if [[ "$(id -u)" != 0 ]]; then
+    roCache="$TEST_ROOT/readonly-binary-cache"
+    rm -rf "$roCache"
+
+    clearStore
+    roPath=$(nix-build dependencies.nix --no-out-link)
+    nix copy --to "file://$roCache" "$roPath"
+
+    # A cache written by an older Nix has no build trace directory, so this is
+    # the one Nix would want to create.
+    rm -rf "${roCache:?}/build-trace-v2"
+    chmod a-w "$roCache"
+
+    clearStore
+    nix-store --realise "$roPath" --substituters "file://$roCache" --no-require-sigs
+
+    chmod u+w "$roCache"
+fi
