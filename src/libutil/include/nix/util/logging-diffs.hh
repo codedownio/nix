@@ -7,7 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include <list>
+#include <deque>
 #include <map>
 #include <optional>
 #include <set>
@@ -48,7 +48,7 @@ struct NixMessage {
 struct NixBuildState {
     std::map<ActivityId, ActivityState> activities;
     std::set<ActivityId> ignored_activites;
-    std::list<NixMessage> messages;
+    std::deque<NixMessage> messages;
 };
 
 }

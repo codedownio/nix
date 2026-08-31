@@ -103,13 +103,17 @@ struct DiffLogger : Logger {
     std::optional<std::set<ActivityType>> activity_types_to_include;
 
     Sync<NixBuildState> state;
-    bool dirty = false; // guarded by the state lock
 
-    // The send path (last_sent, pendingOutput, broken, the fd writes) is guarded by sendMutex,
-    // which is never taken while holding the state lock, so a stalled consumer can't block the
-    // logging calls.
+    // What changed since the last flush, so each flush costs O(changes) rather than
+    // serializing and diffing the whole accumulated state. All guarded by the state lock.
+    size_t sentMessages = 0;
+    std::set<ActivityId> dirtyNew;
+    std::set<ActivityId> dirtyExisting;
+
+    // The send path (pendingOutput, broken, the fd writes) is guarded by sendMutex, which is
+    // never taken while holding the state lock, so a stalled consumer can't block the logging
+    // calls.
     std::mutex sendMutex;
-    json last_sent;
     std::string pendingOutput;
     bool broken = false;
 
@@ -124,7 +128,6 @@ struct DiffLogger : Logger {
     DiffLogger(Descriptor fd, std::optional<std::set<ActivityType>> activity_types_to_include)
         : fd(fd)
         , activity_types_to_include(activity_types_to_include)
-        , last_sent(nullptr)
         , exitPeriodicAction(false)
         , exited(false)
     {
@@ -171,11 +174,12 @@ struct DiffLogger : Logger {
                 json current;
                 {
                     auto state_(state.lock());
-                    this->dirty = false;
                     current = *state_;
+                    this->sentMessages = state_->messages.size();
+                    this->dirtyNew.clear();
+                    this->dirtyExisting.clear();
                 }
                 queueLine(current.dump(-1, ' ', false, json::error_handler_t::replace));
-                this->last_sent = std::move(current);
                 flushPending(std::chrono::milliseconds(100));
             }
 
@@ -201,24 +205,43 @@ struct DiffLogger : Logger {
 
         if (this->broken) return;
 
-        // Finish any partially written line first; generating a new diff only once the buffer has
-        // drained both keeps the stream well formed and coalesces updates while the consumer is
-        // slow. dirty stays set in the meantime, so nothing is lost.
+        // Finish any partially written line first; generating a new patch only once the buffer
+        // has drained both keeps the stream well formed and coalesces updates while the consumer
+        // is slow. The deltas stay recorded in the meantime, so nothing is lost.
         if (!flushPending(writeTimeout)) return;
 
-        json current;
+        json ops = json::array();
         {
             auto state_(state.lock());
-            if (!this->dirty) return;
-            this->dirty = false;
-            current = *state_;
+
+            for (auto act : this->dirtyNew) {
+                auto it = state_->activities.find(act);
+                if (it == state_->activities.end()) continue;
+                ops.push_back(json{ {"op", "add"}, {"path", "/activities/" + std::to_string(act)}, {"value", it->second} });
+            }
+            this->dirtyNew.clear();
+
+            for (auto act : this->dirtyExisting) {
+                auto it = state_->activities.find(act);
+                if (it == state_->activities.end()) continue;
+                ops.push_back(json{ {"op", "replace"}, {"path", "/activities/" + std::to_string(act)}, {"value", it->second} });
+            }
+            this->dirtyExisting.clear();
+
+            for (size_t i = this->sentMessages; i < state_->messages.size(); i++)
+                ops.push_back(json{ {"op", "add"}, {"path", "/messages/-"}, {"value", state_->messages[i]} });
+            this->sentMessages = state_->messages.size();
         }
 
-        if (this->last_sent == current) return;
+        if (ops.empty()) return;
 
-        queueLine(json::diff(this->last_sent, current).dump(-1, ' ', false, json::error_handler_t::replace));
-        this->last_sent = std::move(current);
+        queueLine(ops.dump(-1, ' ', false, json::error_handler_t::replace));
         flushPending(writeTimeout);
+    }
+
+    // Requires the state lock to be held.
+    void markActivityDirty(ActivityId act) {
+        if (!this->dirtyNew.contains(act)) this->dirtyExisting.insert(act);
     }
 
     bool isVerbose() override {
@@ -270,7 +293,6 @@ struct DiffLogger : Logger {
             NixMessage msg;
             msg.msg = s;
             state_->messages.push_back(msg);
-            this->dirty = true;
         }
 
         // Not sure why, but sometimes log messages happen after stop() is called
@@ -305,7 +327,6 @@ struct DiffLogger : Logger {
         {
             auto state_(state.lock());
             state_->messages.push_back(msg);
-            this->dirty = true;
         }
 
         // Not sure why, but sometimes log messages happen after stop() is called
@@ -321,7 +342,7 @@ struct DiffLogger : Logger {
 
         if (!activity_types_to_include || activity_types_to_include->contains(type)) {
             state_->activities.insert(std::pair<ActivityId, ActivityState>(act, as));
-            this->dirty = true;
+            this->dirtyNew.insert(act);
         } else {
             state_->ignored_activites.insert(act);
         }
@@ -336,7 +357,7 @@ struct DiffLogger : Logger {
         } else {
             try {
                 state_->activities.at(act).isComplete = true;
-                this->dirty = true;
+                markActivityDirty(act);
             }
             catch (const std::out_of_range& oor) { }
         }
@@ -349,7 +370,7 @@ struct DiffLogger : Logger {
         if (!activity_types_to_include || !state_->ignored_activites.contains(act)) {
             try {
                 state_->activities.at(act).fields = fields;
-                this->dirty = true;
+                markActivityDirty(act);
             }
             catch (const std::out_of_range& oor) {
                 Logger::writeToStdout("Failed to look up activity " + std::to_string(static_cast<int>(type)) + " to write result of type " + std::to_string(static_cast<int>(type)));
