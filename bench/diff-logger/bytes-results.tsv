@@ -1,0 +1,12 @@
+copy	results-additive	internal-json	1	29976660	328372	0
+copy	results-additive	diffs	1	14358	3	0
+copy	results-additive	internal-json	2	29976660	328372	0
+copy	results-additive	diffs	2	14358	3	0
+copy	base	internal-json	1	29976660	328372	0
+copy	base	diffs	1	13072	3	0
+copy	base	internal-json	2	29976660	328372	0
+copy	base	diffs	2	14187	4	0
+copy	results-clean	internal-json	1	29976660	328372	0
+copy	results-clean	diffs	1	16376	4	0
+copy	results-clean	internal-json	2	29976660	328372	0
+copy	results-clean	diffs	2	15847	4	0

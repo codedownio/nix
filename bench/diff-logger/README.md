@@ -91,3 +91,64 @@ orig and incr yields byte-identical states, modulo a pre-existing bug where `Nix
 serialized uninitialized memory (fixed in 569350c08 on the incremental branch, after the
 benchmarked commit). A 214-path copy stream — which exercises the incremental logger's
 whole-activity `replace` ops — applies cleanly.
+
+# Round 3: builder output (2.35.2-diff-logger-build-logs)
+
+Run 2026-09-01, same machine. Unlike rounds 1 and 2 these are meson dev builds (`nix develop`,
+`ninja -C build`) rather than `.#nix-cli-static`, so the timings aren't comparable to the tables
+above — only the byte counts are measured here.
+
+None of the round 1/2 workloads run a builder, so none of them produce a single `resBuildLogLine`.
+Two new workloads:
+
+- `run4.sh` — a derivation whose builder prints N lines of ~58 characters (`build20k`,
+  `build200k`), plus the post-build hook's own output (`resPostBuildLogLine`). Results:
+  `bytes-buildlogs.tsv`.
+- `run5.sh` — `nix copy` of a python3 closure to a `file://` cache. Activity-heavy, used to price
+  the per-result-type `results` map. Results: `bytes-results.tsv`.
+
+## Build logs
+
+`build200k` = 200k lines, 11.69 MB of raw builder output.
+
+| format | bytes | lines |
+|---|---|---|
+| raw-with-logs | 11.69 MB | 200,006 |
+| internal-json | 26.09 MB | 200,051 |
+| diffs (before this branch) | 3.2 KB | 4–6 |
+| diffs (this branch, logs off) | 2.6 KB | 3 |
+| diffs-with-logs, one op per line | 29.49 MB | 103 |
+| diffs-with-logs, batched | 12.10 MB | 102 |
+
+The old 3.2 KB is not a saving: it's 200k log lines being thrown away, with one surviving line
+left in the activity's `fields`. With logs on, batching consecutive lines from the same activity
+into one `add /logs/-` entry is what makes the format competitive — one op per line spends ~90
+bytes of wrapper on a ~58 byte line (2.5x the raw output, 13% worse than internal-json), while
+batching amortizes the wrapper over ~2000 lines and lands 3.5% above raw output and 2.2x below
+internal-json.
+
+`build20k` shows the same ratios: 1.13 MB raw, 2.57 MB internal-json, 2.91 MB per-line,
+1.17 MB batched.
+
+## Cost of the `results` map
+
+Stream bytes vary run to run with how many 300ms ticks elapse, so this compares the reconstructed
+final state (`apply.py`), which is tick-independent.
+
+| variant | state bytes | vs before |
+|---|---|---|
+| before this branch | 11,242 | — |
+| `results` added, `fields` still clobbered (compat) | 12,295 | +9.4% |
+| `results` added, `fields` left as the start fields | 13,979 | +24.3% |
+
+The clean-break variant is the larger of the two because it stops discarding data: the start
+fields of an `actCopyPath` are a store path plus two store URIs, which the old code overwrote
+with the four integers of the next progress result.
+
+## Backpressure
+
+400k lines through a consumer reading one patch line per 300ms, against the 16 MB queue cap:
+44,000 lines delivered, 356,003 reported via `{"dropped": N}` entries, totalling exactly the
+400,003 lines the builder produced. The count only balances with the drain at the end of `stop()`
+(958d6c8cc); before that, everything still queued when the 5s exit deadline expired was discarded
+without a marker.
