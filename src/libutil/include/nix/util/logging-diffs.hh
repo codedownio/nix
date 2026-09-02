@@ -22,6 +22,11 @@ struct ActivityState {
     ActivityType type;
     std::string text;
     Logger::Fields fields;
+    /**
+     * The most recent fields of each result type. Kept separately because a single `fields`
+     * slot means, say, a progress update overwrites the phase that was set before it.
+     */
+    std::map<ResultType, Logger::Fields> results;
     ActivityId parent;
 
     ActivityState(ActivityType _type, const std::string _text, const Logger::Fields &_fields, ActivityId _parent):

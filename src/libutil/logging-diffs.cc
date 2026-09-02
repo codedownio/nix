@@ -23,10 +23,9 @@ using json = nlohmann::json;
 
 namespace nix {
 
-void addFields(json & json, const Logger::Fields & fields)
+static json fieldsToJson(const Logger::Fields & fields)
 {
-    if (fields.empty()) return;
-    auto & arr = json["fields"] = json::array();
+    auto arr = json::array();
     for (auto & f : fields)
         if (f.type == Logger::Field::tInt)
             arr.push_back(f.i);
@@ -34,6 +33,13 @@ void addFields(json & json, const Logger::Fields & fields)
             arr.push_back(f.s);
         else
             abort();
+    return arr;
+}
+
+void addFields(json & json, const Logger::Fields & fields)
+{
+    if (fields.empty()) return;
+    json["fields"] = fieldsToJson(fields);
 }
 
 void to_json(json & j, const NixMessage & m)
@@ -54,6 +60,12 @@ void to_json(json & j, const ActivityState & as)
 {
     j = json{ {"is_complete", as.isComplete}, {"type", as.type}, {"text", as.text} };
     addFields(j, as.fields);
+
+    if (!as.results.empty()) {
+        auto & results = j["results"] = json::object();
+        for (const auto & [type, fields] : as.results)
+            results[std::to_string((int) type)] = fieldsToJson(fields);
+    }
 }
 
 void to_json(json & j, const NixBuildState & s)
@@ -461,7 +473,11 @@ struct DiffLogger : Logger {
 
         if (!activity_types_to_include || !state_->ignored_activites.contains(act)) {
             try {
-                state_->activities.at(act).fields = fields;
+                auto & as = state_->activities.at(act);
+                // `fields` keeps its old meaning (the most recent result of any type, clobbering
+                // both the start fields and the previous result) for consumers that read it.
+                as.fields = fields;
+                as.results[type] = fields;
                 markActivityDirty(act);
             }
             catch (const std::out_of_range& oor) {
