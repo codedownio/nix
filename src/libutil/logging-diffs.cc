@@ -483,11 +483,8 @@ struct DiffLogger : Logger {
 
         if (!activity_types_to_include || !state_->ignored_activites.contains(act)) {
             try {
-                auto & as = state_->activities.at(act);
-                // `fields` keeps its old meaning (the most recent result of any type, clobbering
-                // both the start fields and the previous result) for consumers that read it.
-                as.fields = fields;
-                as.results[type] = fields;
+                // `fields` now stays as startActivity set it; results live in `results`.
+                state_->activities.at(act).results[type] = fields;
                 markActivityDirty(act);
             }
             catch (const std::out_of_range& oor) {
