@@ -57,6 +57,14 @@ LogFormat parseLogFormat(const std::string & logFormatStr)
         parseActivityIds(activityIdsPart);
         return LogFormat::diffs;
     }
+    else if (logFormatStr == "diffs-with-logs") {
+        diffActivitiesToInclude = std::nullopt;
+        return LogFormat::diffsWithLogs;
+    }
+    else if (logFormatStr.starts_with("diffs-with-logs;")) {
+        parseActivityIds(logFormatStr.substr(std::string("diffs-with-logs;").size()));
+        return LogFormat::diffsWithLogs;
+    }
     else if (logFormatStr == "bar")
         return LogFormat::bar;
     else if (logFormatStr == "bar-with-logs")
@@ -75,6 +83,11 @@ std::unique_ptr<Logger> makeDefaultLogger()
         return makeJSONLogger(getStandardError());
     case LogFormat::diffs:
         return makeDiffLogger(getStandardError(), diffActivitiesToInclude);
+    case LogFormat::diffsWithLogs: {
+        auto logger = makeDiffLogger(getStandardError(), diffActivitiesToInclude);
+        logger->setPrintBuildLogs(true);
+        return logger;
+    }
     case LogFormat::bar:
         return makeProgressBar();
     case LogFormat::barWithLogs: {

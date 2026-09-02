@@ -45,6 +45,17 @@ struct NixMessage {
     std::string raw_msg;
 };
 
+/**
+ * A line of builder output, streamed to the consumer as an entry in the top-level `logs` array.
+ * The line is not attached to its activity, because activity updates are sent as whole-object
+ * `replace` ops, which would wipe out an array nested under the activity.
+ */
+struct NixLogLine {
+    ActivityId activity;
+    ResultType type;
+    std::string line;
+};
+
 struct NixBuildState {
     std::map<ActivityId, ActivityState> activities;
     std::set<ActivityId> ignored_activites;

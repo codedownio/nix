@@ -56,6 +56,11 @@ void to_json(json & j, const ActivityState & as)
     addFields(j, as.fields);
 }
 
+void to_json(json & j, const NixLogLine & l)
+{
+    j = json{ {"activity", l.activity}, {"type", (int) l.type}, {"line", l.line} };
+}
+
 void to_json(json & j, const NixBuildState & s)
 {
     j = json{ {"messages", s.messages} };
@@ -98,6 +103,15 @@ static void posToJson(json & json, std::shared_ptr<const Pos> pos)
 
 namespace {
 
+// Builder output can outrun a slow consumer indefinitely, so the queue of unsent lines is
+// capped; past the cap the oldest lines are dropped and reported as a gap in the stream.
+constexpr size_t maxPendingLogBytes = 16 * 1024 * 1024;
+// Bound on how many lines go into a single patch, so one flush can't produce an enormous line.
+constexpr size_t maxLogLinesPerFlush = 2000;
+// Rough per-entry cost of the JSON wrapper around a line, so the byte cap accounts for a flood
+// of short lines.
+constexpr size_t logLineOverhead = 64;
+
 struct DiffLogger : Logger {
     Descriptor fd;
     std::optional<std::set<ActivityType>> activity_types_to_include;
@@ -109,6 +123,15 @@ struct DiffLogger : Logger {
     size_t sentMessages = 0;
     std::set<ActivityId> dirtyNew;
     std::set<ActivityId> dirtyExisting;
+
+    // Builder output waiting to be sent. Unlike the rest of the state this is drained as it's
+    // sent rather than kept, since a big build's log is far too large to hold. Guarded by the
+    // state lock.
+    std::deque<NixLogLine> pendingLogs;
+    size_t pendingLogBytes = 0;
+    uint64_t droppedLogLines = 0;
+
+    std::atomic_bool printBuildLogs{false};
 
     // The send path (pendingOutput, broken, the fd writes) is guarded by sendMutex, which is
     // never taken while holding the state lock, so a stalled consumer can't block the logging
@@ -163,7 +186,11 @@ struct DiffLogger : Logger {
         else this->printerThread.detach();
 
         this->exited = true;
-        sendLatestIfNecessary(std::chrono::milliseconds(2000));
+        // Keep going while there's a backlog, since a build's last lines can exceed what one
+        // flush sends, but give up after a few seconds rather than delaying exit indefinitely.
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (sendLatestIfNecessary(std::chrono::milliseconds(2000))
+               && std::chrono::steady_clock::now() < deadline) ;
     }
 
     void periodicAction() {
@@ -179,6 +206,10 @@ struct DiffLogger : Logger {
                     this->dirtyNew.clear();
                     this->dirtyExisting.clear();
                 }
+                // Only declare the array when we're actually streaming logs, so the default
+                // `diffs` output stays exactly what it was. Log lines are never part of the
+                // snapshot; they only ever arrive as patches.
+                if (this->printBuildLogs) current["logs"] = json::array();
                 queueLine(current.dump(-1, ' ', false, json::error_handler_t::replace));
                 flushPending(std::chrono::milliseconds(100));
             }
@@ -186,7 +217,9 @@ struct DiffLogger : Logger {
             while (true) {
                 if (this->exitPeriodicAction) break;
 
-                sendLatestIfNecessary(std::chrono::milliseconds(100));
+                // A backlog means we hit the per-flush line cap, so keep going instead of
+                // sleeping; otherwise a verbose build would be throttled to the tick rate.
+                if (sendLatestIfNecessary(std::chrono::milliseconds(100))) continue;
 
                 std::unique_lock<std::mutex> g(quitMutex);
                 quitCV.wait_for(g, std::chrono::milliseconds(300), [&] { return this->exitPeriodicAction.load(); });
@@ -200,16 +233,20 @@ struct DiffLogger : Logger {
         quitCV.notify_all();
     }
 
-    void sendLatestIfNecessary(std::chrono::milliseconds writeTimeout) {
+    // Returns true if there is more to send: the caller should come back immediately rather
+    // than waiting for the next tick. False on the paths where we made no progress, so a
+    // stalled consumer can't turn this into a spin.
+    bool sendLatestIfNecessary(std::chrono::milliseconds writeTimeout) {
         std::unique_lock<std::mutex> sendLock(sendMutex);
 
-        if (this->broken) return;
+        if (this->broken) return false;
 
         // Finish any partially written line first; generating a new patch only once the buffer
         // has drained both keeps the stream well formed and coalesces updates while the consumer
         // is slow. The deltas stay recorded in the meantime, so nothing is lost.
-        if (!flushPending(writeTimeout)) return;
+        if (!flushPending(writeTimeout)) return false;
 
+        bool backlog = false;
         json ops = json::array();
         {
             auto state_(state.lock());
@@ -231,12 +268,42 @@ struct DiffLogger : Logger {
             for (size_t i = this->sentMessages; i < state_->messages.size(); i++)
                 ops.push_back(json{ {"op", "add"}, {"path", "/messages/-"}, {"value", state_->messages[i]} });
             this->sentMessages = state_->messages.size();
+
+            // Everything dropped so far precedes everything still queued, so one marker here
+            // sits exactly where the hole is.
+            if (this->droppedLogLines) {
+                ops.push_back(json{ {"op", "add"}, {"path", "/logs/-"}, {"value", json{ {"dropped", this->droppedLogLines} }} });
+                this->droppedLogLines = 0;
+            }
+
+            for (size_t i = 0; i < maxLogLinesPerFlush && !this->pendingLogs.empty(); i++) {
+                auto & l = this->pendingLogs.front();
+                this->pendingLogBytes -= l.line.size() + logLineOverhead;
+                ops.push_back(json{ {"op", "add"}, {"path", "/logs/-"}, {"value", l} });
+                this->pendingLogs.pop_front();
+            }
+            backlog = !this->pendingLogs.empty();
         }
 
-        if (ops.empty()) return;
+        if (ops.empty()) return false;
 
         queueLine(ops.dump(-1, ' ', false, json::error_handler_t::replace));
-        flushPending(writeTimeout);
+        return flushPending(writeTimeout) && backlog;
+    }
+
+    // Requires the state lock to be held.
+    void pushLogLine(ActivityId act, ResultType type, const Fields & fields) {
+        std::string line;
+        if (!fields.empty() && fields[0].type == Field::tString) line = fields[0].s;
+
+        this->pendingLogBytes += line.size() + logLineOverhead;
+        this->pendingLogs.push_back(NixLogLine{act, type, std::move(line)});
+
+        while (this->pendingLogBytes > maxPendingLogBytes && !this->pendingLogs.empty()) {
+            this->pendingLogBytes -= this->pendingLogs.front().line.size() + logLineOverhead;
+            this->pendingLogs.pop_front();
+            this->droppedLogLines++;
+        }
     }
 
     // Requires the state lock to be held.
@@ -244,8 +311,14 @@ struct DiffLogger : Logger {
         if (!this->dirtyNew.contains(act)) this->dirtyExisting.insert(act);
     }
 
+    // When we aren't streaming builder output, say we're not verbose so that a failed build
+    // still appends its last log lines to the error message.
     bool isVerbose() override {
-        return true;
+        return this->printBuildLogs;
+    }
+
+    void setPrintBuildLogs(bool printBuildLogs) override {
+        this->printBuildLogs = printBuildLogs;
     }
 
     void queueLine(std::string && s)
@@ -366,6 +439,15 @@ struct DiffLogger : Logger {
 
     void result(ActivityId act, ResultType type, const Fields & fields) override
     {
+        if (type == resBuildLogLine || type == resPostBuildLogLine) {
+            if (!this->printBuildLogs) return;
+
+            auto state_(state.lock());
+            if (activity_types_to_include && state_->ignored_activites.contains(act)) return;
+            pushLogLine(act, type, fields);
+            return;
+        }
+
         auto state_(state.lock());
 
         if (!activity_types_to_include || !state_->ignored_activites.contains(act)) {
