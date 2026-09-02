@@ -126,6 +126,7 @@ suites = [
       'lang.sh',
       'legacy-ssh-store.sh',
       'linux-sandbox.sh',
+      'log-format-diffs.sh',
       'logging.sh',
       'make-content-addressed.sh',
       'misc.sh',
