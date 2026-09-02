@@ -152,3 +152,53 @@ with the four integers of the next progress result.
 400,003 lines the builder produced. The count only balances with the drain at the end of `stop()`
 (958d6c8cc); before that, everything still queued when the 5s exit deadline expired was discarded
 without a marker.
+
+## Timing and stall (round 3)
+
+`run6.sh`, same machine, 2026-09-02. Both binaries are meson `--buildtype=release` builds — the
+first attempt used the dev shell's default `-O0`, where flood took 140s instead of 9s and the
+numbers were meaningless. These are dynamic release builds rather than `.#nix-cli-static`, so
+they aren't comparable to rounds 1 and 2 in absolute terms; base and new are built identically,
+so the comparison between them holds. Medians of 3.
+
+`build200k`, 200k builder lines:
+
+| config | wall | user | sys |
+|---|---|---|---|
+| base/diffs | 1.628 | 0.067 | 0.166 |
+| new/diffs (logs off) | 1.698 | 0.068 | 0.172 |
+| new/diffs-with-logs | 1.518 | 0.132 | 0.151 |
+| new/raw-with-logs | 1.349 | 0.117 | 0.161 |
+| new/internal-json | 1.532 | 0.237 | 0.146 |
+
+Wall time is dominated by the builder's own bash loop and the daemon round trips: the range
+within a single config is ±25% (new/diffs spans 1.37–2.24s), so it says nothing here. Client CPU
+is the signal. Streaming 200k lines costs 0.065s of user CPU over the same run with logs off —
+about 0.33µs per line — which lands between `raw-with-logs` (0.117) and `internal-json` (0.237).
+With logs off, 0.068 vs the baseline's 0.067 is unchanged, as expected: the new code paths are
+behind the `printBuildLogs` check.
+
+`flood` (150k traces + hash work) is untouched by this branch and was rerun as a drift check:
+7.726 base vs 7.916 new, with the runs overlapping (7.48–9.02 vs 7.59–8.40). No regression
+visible.
+
+Stall — the consumer reads 1KB and then holds the pipe open without reading, `timeout 90`:
+
+| workload | config | elapsed | exit |
+|---|---|---|---|
+| 200k lines | base/diffs | 2.67 | 0 |
+| 200k lines | new/diffs | 1.91 | 0 |
+| 200k lines | new/diffs-with-logs | 4.59 | 0 |
+| 400k lines | base/diffs | 3.54 | 0 |
+| 400k lines | new/diffs | 3.03 | 0 |
+| 400k lines | new/diffs-with-logs | 5.25 | 0 |
+
+Nothing hangs, so the property `94f7c7fd5` established survives. Streaming logs does cost about
+3s more at exit against a consumer that has stopped reading entirely: `stop()` keeps retrying the
+drain until its 5s deadline, and a dead consumer means no retry can make progress. That deadline
+is a single constant in `stop()` if the tradeoff should go the other way.
+
+Output line length is worth knowing for consumers that split stdin with a bounded line length:
+at `maxLogLinesPerFlush = 2000` and ~58 byte log lines, the longest line in a `build200k`
+`diffs-with-logs` stream is 123 KB. A builder emitting 1 KB lines would push that into the
+megabytes; it scales with the cap, which is also a single constant.
