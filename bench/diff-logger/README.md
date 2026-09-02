@@ -194,9 +194,31 @@ Stall — the consumer reads 1KB and then holds the pipe open without reading, `
 | 400k lines | new/diffs-with-logs | 5.25 | 0 |
 
 Nothing hangs, so the property `94f7c7fd5` established survives. Streaming logs does cost about
-3s more at exit against a consumer that has stopped reading entirely: `stop()` keeps retrying the
-drain until its 5s deadline, and a dead consumer means no retry can make progress. That deadline
-is a single constant in `stop()` if the tradeoff should go the other way.
+3s more at exit against a consumer that has stopped reading entirely — which is the per-flush
+write timeout being spent twice, not the 5s drain deadline, which never gets the chance to fire
+here. Chasing that distinction turned up a worse problem; see below.
+
+## Exit behaviour by consumer speed
+
+The stall test only covers a consumer that stops dead. A consumer that reads *slowly* turned out
+to be the interesting case, because `flushPending` budgeted a fixed 2000ms per line at exit
+regardless of whether the consumer was taking bytes. `run7.sh`, 150k lines (~8.7MB, under the
+16MB queue cap, so nothing should be dropped for lack of room), consumer reading one patch line
+per 100ms:
+
+| exit path | delivered | dropped | elapsed |
+|---|---|---|---|
+| fixed per-line budget | 86,000 | 64,003 | 6.19 |
+| give up only on no progress | 150,003 | 0 | 10.39 |
+
+The old code discarded 43% of the build log from a consumer that was reading it perfectly well,
+just not fast enough to take a ~123KB line within 2s. `flushPending` now gives up after
+`exitStallTimeout` with *no bytes taken at all*, so being slow costs nothing; the queue is capped,
+so a consumer that keeps reading always gets the whole log in bounded time. The overall deadline
+is raised to 60s and is now only a backstop against results still arriving after `stop()`.
+
+A consumer that stops reading entirely is unaffected by any of this: it still exits in ~5s
+(150k lines), bounded by the stall timeout rather than the deadline.
 
 Output line length is worth knowing for consumers that split stdin with a bounded line length:
 at `maxLogLinesPerFlush = 2000` and ~58 byte log lines, the longest line in a `build200k`

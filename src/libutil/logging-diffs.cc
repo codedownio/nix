@@ -119,6 +119,13 @@ constexpr size_t maxLogLinesPerFlush = 2000;
 // of short lines.
 constexpr size_t logLineOverhead = 64;
 
+// At exit, how long to keep trying once the consumer has stopped taking bytes altogether. This
+// is what bounds exit against a dead consumer; a slow one is limited by nothing but the size of
+// the queue.
+constexpr auto exitStallTimeout = std::chrono::milliseconds(2000);
+// Backstop on the whole drain, in case results keep arriving after stop().
+constexpr auto exitDeadline = std::chrono::seconds(60);
+
 struct DiffLogger : Logger {
     Descriptor fd;
     std::optional<std::set<ActivityType>> activity_types_to_include;
@@ -194,9 +201,13 @@ struct DiffLogger : Logger {
 
         this->exited = true;
         // Keep going while there's a backlog, since a build's last lines can exceed what one
-        // flush sends, but give up after a few seconds rather than delaying exit indefinitely.
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (sendLatestIfNecessary(std::chrono::milliseconds(2000))
+        // flush sends. What ends this is the consumer stopping: flushPending gives up after
+        // exitStallTimeout with no bytes taken at all. A consumer that keeps reading, however
+        // slowly, gets the whole log — the queue is capped, so there is a bounded amount to
+        // hand over. The deadline is only a backstop against results still arriving after
+        // stop(), which would otherwise keep refilling the queue as fast as we drain it.
+        auto deadline = std::chrono::steady_clock::now() + exitDeadline;
+        while (sendLatestIfNecessary(exitStallTimeout, deadline)
                && std::chrono::steady_clock::now() < deadline) ;
 
         // Anything still queued isn't going to make it. Count it so the last thing the consumer
@@ -207,7 +218,7 @@ struct DiffLogger : Logger {
             this->pendingLogs.clear();
             this->pendingLogBytes = 0;
         }
-        sendLatestIfNecessary(std::chrono::milliseconds(500));
+        sendLatestIfNecessary(exitStallTimeout);
     }
 
     void periodicAction() {
@@ -254,6 +265,10 @@ struct DiffLogger : Logger {
     // than waiting for the next tick. False on the paths where we made no progress, so a
     // stalled consumer can't turn this into a spin.
     bool sendLatestIfNecessary(std::chrono::milliseconds writeTimeout) {
+        return sendLatestIfNecessary(writeTimeout, std::chrono::steady_clock::now() + writeTimeout);
+    }
+
+    bool sendLatestIfNecessary(std::chrono::milliseconds stallTimeout, std::chrono::steady_clock::time_point deadline) {
         std::unique_lock<std::mutex> sendLock(sendMutex);
 
         if (this->broken) return false;
@@ -261,7 +276,7 @@ struct DiffLogger : Logger {
         // Finish any partially written line first; generating a new patch only once the buffer
         // has drained both keeps the stream well formed and coalesces updates while the consumer
         // is slow. The deltas stay recorded in the meantime, so nothing is lost.
-        if (!flushPending(writeTimeout)) return false;
+        if (!flushPending(stallTimeout, deadline)) return false;
 
         bool backlog = false;
         json ops = json::array();
@@ -319,7 +334,7 @@ struct DiffLogger : Logger {
         if (ops.empty()) return false;
 
         queueLine(ops.dump(-1, ' ', false, json::error_handler_t::replace));
-        return flushPending(writeTimeout) && backlog;
+        return flushPending(stallTimeout, deadline) && backlog;
     }
 
     // Requires the state lock to be held.
@@ -358,25 +373,37 @@ struct DiffLogger : Logger {
         pendingOutput += '\n';
     }
 
-    // Write as much of pendingOutput as possible before the deadline. Returns true when the
-    // buffer has been emptied.
     bool flushPending(std::chrono::milliseconds writeTimeout)
     {
-        auto deadline = std::chrono::steady_clock::now() + writeTimeout;
+        return flushPending(writeTimeout, std::chrono::steady_clock::now() + writeTimeout);
+    }
+
+    // Write as much of pendingOutput as possible, giving up once the consumer has taken no bytes
+    // at all for stallTimeout, or once deadline passes. A consumer that keeps accepting bytes is
+    // never cut off for merely being slow, however long the line takes. Returns true when the
+    // buffer has been emptied.
+    bool flushPending(std::chrono::milliseconds stallTimeout, std::chrono::steady_clock::time_point deadline)
+    {
+        auto lastProgress = std::chrono::steady_clock::now();
         size_t written = 0;
         while (written < pendingOutput.size()) {
             ssize_t res = ::write(fd, pendingOutput.data() + written, pendingOutput.size() - written);
-            if (res > 0) { written += res; continue; }
+            if (res > 0) {
+                written += res;
+                lastProgress = std::chrono::steady_clock::now();
+                continue;
+            }
             if (res == 0) break;
             if (errno == EINTR) continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 auto now = std::chrono::steady_clock::now();
-                if (now >= deadline) break;
+                if (now >= deadline || now - lastProgress >= stallTimeout) break;
                 struct pollfd pfd;
                 pfd.fd = fd;
                 pfd.events = POLLOUT;
                 pfd.revents = 0;
-                auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+                auto remaining = std::min(deadline, lastProgress + stallTimeout) - now;
+                auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count();
                 poll(&pfd, 1, (int) std::min<long long>(remainingMs, 100));
                 continue;
             }
