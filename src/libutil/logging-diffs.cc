@@ -198,6 +198,16 @@ struct DiffLogger : Logger {
         auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (sendLatestIfNecessary(std::chrono::milliseconds(2000))
                && std::chrono::steady_clock::now() < deadline) ;
+
+        // Anything still queued isn't going to make it. Count it so the last thing the consumer
+        // sees is the size of the gap, rather than a stream that just stops.
+        {
+            auto state_(state.lock());
+            this->droppedLogLines += this->pendingLogs.size();
+            this->pendingLogs.clear();
+            this->pendingLogBytes = 0;
+        }
+        sendLatestIfNecessary(std::chrono::milliseconds(500));
     }
 
     void periodicAction() {
