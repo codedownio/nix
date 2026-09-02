@@ -56,11 +56,6 @@ void to_json(json & j, const ActivityState & as)
     addFields(j, as.fields);
 }
 
-void to_json(json & j, const NixLogLine & l)
-{
-    j = json{ {"activity", l.activity}, {"type", (int) l.type}, {"line", l.line} };
-}
-
 void to_json(json & j, const NixBuildState & s)
 {
     j = json{ {"messages", s.messages} };
@@ -276,11 +271,25 @@ struct DiffLogger : Logger {
                 this->droppedLogLines = 0;
             }
 
-            for (size_t i = 0; i < maxLogLinesPerFlush && !this->pendingLogs.empty(); i++) {
-                auto & l = this->pendingLogs.front();
-                this->pendingLogBytes -= l.line.size() + logLineOverhead;
-                ops.push_back(json{ {"op", "add"}, {"path", "/logs/-"}, {"value", l} });
-                this->pendingLogs.pop_front();
+            // Consecutive lines from the same activity are sent as one entry. Repeating the op
+            // wrapper and the activity id per line costs more bytes than the lines themselves.
+            for (size_t sent = 0; sent < maxLogLinesPerFlush && !this->pendingLogs.empty(); ) {
+                auto act = this->pendingLogs.front().activity;
+                auto type = this->pendingLogs.front().type;
+
+                json lines = json::array();
+                while (sent < maxLogLinesPerFlush && !this->pendingLogs.empty()
+                       && this->pendingLogs.front().activity == act
+                       && this->pendingLogs.front().type == type) {
+                    auto & l = this->pendingLogs.front();
+                    this->pendingLogBytes -= l.line.size() + logLineOverhead;
+                    lines.push_back(std::move(l.line));
+                    this->pendingLogs.pop_front();
+                    sent++;
+                }
+
+                ops.push_back(json{ {"op", "add"}, {"path", "/logs/-"},
+                    {"value", json{ {"activity", act}, {"type", (int) type}, {"lines", lines} }} });
             }
             backlog = !this->pendingLogs.empty();
         }
