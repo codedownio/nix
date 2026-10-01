@@ -40,6 +40,11 @@ typedef enum {
     resSetExpected = 106,
     resPostBuildLogLine = 107,
     resFetchStatus = 108,
+    /**
+     * Reported for each derivation in the plan a command is about to build. Fields: the
+     * derivation path, then the paths of its input derivations.
+     */
+    resDerivationInputs = 109,
 } ResultType;
 
 typedef uint64_t ActivityId;

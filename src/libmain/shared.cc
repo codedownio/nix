@@ -68,6 +68,20 @@ void printMissing(ref<Store> store, const MissingPaths & missing, Verbosity lvl)
         auto sorted = store->topoSortPaths(missing.willBuild);
         for (auto & i : sorted | std::views::reverse)
             printMsg(lvl, "  %s", store->printStorePath(i));
+
+        // Report each planned derivation's inputs as well, so a consumer can lay the plan out as a
+        // tree. Done here rather than in the worker because with a daemon the worker is the
+        // daemon's, which may not report anything.
+        for (auto & drvPath : sorted) {
+            try {
+                Logger::Fields fields{store->printStorePath(drvPath)};
+                for (auto & [inputDrvPath, _] : store->readDerivation(drvPath).inputDrvs.map)
+                    fields.push_back(store->printStorePath(inputDrvPath));
+                logger->result(getCurActivity(), resDerivationInputs, fields);
+            } catch (Error &) {
+                // A derivation we can't read just goes without its inputs.
+            }
+        }
     }
 
     if (!missing.willSubstitute.empty()) {

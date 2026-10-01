@@ -84,6 +84,23 @@ void to_json(json & j, const NixBuildState & s)
     for (const auto& [key, value] : s.activities) {
         j["activities"][std::to_string(key)] = value;
     }
+
+    j["dependencies"] = json(json::value_t::object);
+    for (const auto& [drv, inputs] : s.dependencies) {
+        j["dependencies"][drv] = inputs;
+    }
+}
+
+// RFC 6901 escaping, for store paths used as keys in a JSON pointer.
+static std::string escapePointerToken(const std::string & s)
+{
+    std::string out;
+    for (char c : s) {
+        if (c == '~') out += "~0";
+        else if (c == '/') out += "~1";
+        else out += c;
+    }
+    return out;
 }
 
 static void addPosToMessage(NixMessage & msg, std::shared_ptr<const Pos> pos)
@@ -132,6 +149,7 @@ struct DiffLogger : Logger {
     size_t sentMessages = 0;
     std::set<ActivityId> dirtyNew;
     std::set<ActivityId> dirtyExisting;
+    std::set<std::string> dirtyDependencies;
 
     // Builder output waiting to be sent. Unlike the rest of the state these are dropped as they
     // go out rather than kept, since there's no reason to hold a whole build's log in memory.
@@ -212,6 +230,7 @@ struct DiffLogger : Logger {
                     this->sentMessages = state_->messages.size();
                     this->dirtyNew.clear();
                     this->dirtyExisting.clear();
+                    this->dirtyDependencies.clear();
                 }
                 queueLine(current.dump(-1, ' ', false, json::error_handler_t::replace));
                 flushPending(true);
@@ -271,6 +290,13 @@ struct DiffLogger : Logger {
             for (size_t i = this->sentMessages; i < state_->messages.size(); i++)
                 ops.push_back(json{ {"op", "add"}, {"path", "/messages/-"}, {"value", state_->messages[i]} });
             this->sentMessages = state_->messages.size();
+
+            for (auto & drv : this->dirtyDependencies) {
+                auto it = state_->dependencies.find(drv);
+                if (it == state_->dependencies.end()) continue;
+                ops.push_back(json{ {"op", "add"}, {"path", "/dependencies/" + escapePointerToken(drv)}, {"value", it->second} });
+            }
+            this->dirtyDependencies.clear();
 
             // Consecutive lines from the same activity are sent as one entry. Repeating the op
             // wrapper and the activity id per line costs more bytes than the lines themselves.
@@ -458,6 +484,16 @@ struct DiffLogger : Logger {
         }
 
         auto state_(state.lock());
+
+        if (type == resDerivationInputs) {
+            if (fields.empty() || fields[0].type != Field::tString) return;
+            std::vector<std::string> inputs;
+            for (size_t i = 1; i < fields.size(); i++)
+                if (fields[i].type == Field::tString) inputs.push_back(fields[i].s);
+            state_->dependencies[fields[0].s] = std::move(inputs);
+            this->dirtyDependencies.insert(fields[0].s);
+            return;
+        }
 
         if (!activity_types_to_include || !state_->ignored_activites.contains(act)) {
             try {

@@ -78,6 +78,11 @@ struct NixBuildState {
     std::map<ActivityId, ActivityState> activities;
     std::set<ActivityId> ignored_activites;
     std::deque<NixMessage> messages;
+    /**
+     * Input derivations of each derivation that is going to be built, keyed by derivation path.
+     * Kept outside the activities because a derivation has no activity until its build starts.
+     */
+    std::map<std::string, std::vector<std::string>> dependencies;
 };
 
 }
