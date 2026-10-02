@@ -45,6 +45,15 @@ typedef enum {
      * derivation path, then the paths of its input derivations.
      */
     resDerivationInputs = 109,
+    /**
+     * Reported when a build has failed. Fields: the derivation path, then the error message.
+     */
+    resBuildFailed = 110,
+    /**
+     * Reported with the plan a command is about to carry out. Fields: the download size, the
+     * unpacked size, then the store paths that will be substituted.
+     */
+    resPlannedFetches = 111,
 } ResultType;
 
 typedef uint64_t ActivityId;

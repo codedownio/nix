@@ -74,10 +74,20 @@ struct NixLogLine {
     std::string line;
 };
 
+struct NixFetches {
+    uint64_t downloadSize;
+    uint64_t narSize;
+    std::vector<std::string> paths;
+};
+
 struct NixBuildState {
     std::map<ActivityId, ActivityState> activities;
     std::set<ActivityId> ignored_activites;
     std::deque<NixMessage> messages;
+    /**
+     * What the command said it would substitute, once it has said.
+     */
+    std::optional<NixFetches> fetches;
     /**
      * Input derivations of each derivation that is going to be built, keyed by derivation path.
      * Kept outside the activities because a derivation has no activity until its build starts.

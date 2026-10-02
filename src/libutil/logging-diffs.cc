@@ -71,9 +71,15 @@ void to_json(json & j, const ActivityState & as)
     }
 }
 
+void to_json(json & j, const NixFetches & f)
+{
+    j = json{ {"download_size", f.downloadSize}, {"nar_size", f.narSize}, {"paths", f.paths} };
+}
+
 void to_json(json & j, const NixBuildState & s)
 {
     j = json{ {"messages", s.messages} };
+    if (s.fetches) j["fetches"] = *s.fetches;
 
     // Always present, even when build logs aren't being streamed: --print-build-logs can be
     // processed after the snapshot has gone out, and the later `add /logs/-` patches need
@@ -150,6 +156,7 @@ struct DiffLogger : Logger {
     std::set<ActivityId> dirtyNew;
     std::set<ActivityId> dirtyExisting;
     std::set<std::string> dirtyDependencies;
+    bool dirtyFetches = false;
 
     // Builder output waiting to be sent. Unlike the rest of the state these are dropped as they
     // go out rather than kept, since there's no reason to hold a whole build's log in memory.
@@ -231,6 +238,7 @@ struct DiffLogger : Logger {
                     this->dirtyNew.clear();
                     this->dirtyExisting.clear();
                     this->dirtyDependencies.clear();
+                    this->dirtyFetches = false;
                 }
                 queueLine(current.dump(-1, ' ', false, json::error_handler_t::replace));
                 flushPending(true);
@@ -297,6 +305,11 @@ struct DiffLogger : Logger {
                 ops.push_back(json{ {"op", "add"}, {"path", "/dependencies/" + escapePointerToken(drv)}, {"value", it->second} });
             }
             this->dirtyDependencies.clear();
+
+            if (this->dirtyFetches && state_->fetches) {
+                ops.push_back(json{ {"op", "add"}, {"path", "/fetches"}, {"value", *state_->fetches} });
+                this->dirtyFetches = false;
+            }
 
             // Consecutive lines from the same activity are sent as one entry. Repeating the op
             // wrapper and the activity id per line costs more bytes than the lines themselves.
@@ -484,6 +497,30 @@ struct DiffLogger : Logger {
         }
 
         auto state_(state.lock());
+
+        if (type == resPlannedFetches) {
+            if (fields.size() < 2 || fields[0].type != Field::tInt || fields[1].type != Field::tInt) return;
+            NixFetches fetches{fields[0].i, fields[1].i, {}};
+            for (size_t i = 2; i < fields.size(); i++)
+                if (fields[i].type == Field::tString) fetches.paths.push_back(fields[i].s);
+            state_->fetches = std::move(fetches);
+            this->dirtyFetches = true;
+            return;
+        }
+
+        // The failure comes from the command, not the build activity, so find the activity by its
+        // derivation.
+        if (type == resBuildFailed) {
+            if (fields.empty() || fields[0].type != Field::tString) return;
+            for (auto & [id, as] : state_->activities) {
+                if (as.type == actBuild && !as.fields.empty() && as.fields[0].type == Field::tString && as.fields[0].s == fields[0].s) {
+                    as.results[type] = fields;
+                    markActivityDirty(id);
+                    break;
+                }
+            }
+            return;
+        }
 
         if (type == resDerivationInputs) {
             if (fields.empty() || fields[0].type != Field::tString) return;

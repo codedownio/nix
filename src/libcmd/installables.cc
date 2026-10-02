@@ -554,6 +554,16 @@ static void throwBuildErrors(std::vector<KeyedBuildResult> & buildResults, const
         }
     }
 
+    for (auto & [result, failure] : failed) {
+        auto drvPath = std::visit(
+            overloaded{
+                [&](const DerivedPath::Opaque & o) { return store.printStorePath(o.path); },
+                [&](const DerivedPath::Built & b) { return b.drvPath->to_string(store); },
+            },
+            result->path.raw());
+        logger->result(getCurActivity(), resBuildFailed, Logger::Fields{drvPath, failure->message()});
+    }
+
     auto failedResult = failed.begin();
     if (failedResult != failed.end()) {
         if (failed.size() == 1) {

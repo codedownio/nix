@@ -114,6 +114,13 @@ void printMissing(ref<Store> store, const MissingPaths & missing, Verbosity lvl)
             printMsg(lvl, "  %s", store->printStorePath(*p));
     }
 
+    {
+        Logger::Fields fields{missing.downloadSize, missing.narSize};
+        for (auto & p : missing.willSubstitute)
+            fields.push_back(store->printStorePath(p));
+        logger->result(getCurActivity(), resPlannedFetches, fields);
+    }
+
     if (!missing.unknown.empty()) {
         printMsg(
             lvl,
