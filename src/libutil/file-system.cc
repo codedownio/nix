@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 
 #include <fcntl.h>
 #include <sys/types.h>
@@ -597,15 +598,31 @@ void copyFile(const std::filesystem::path & from, const std::filesystem::path & 
             std::filesystem::perm_options::add | std::filesystem::perm_options::nofollow);
     }
 
-    if (std::filesystem::is_symlink(fromStatus) || std::filesystem::is_regular_file(fromStatus)) {
-        if (contents) {
-            std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing);
-        } else {
-            std::filesystem::copy(
-                from,
-                to,
-                std::filesystem::copy_options::copy_symlinks | std::filesystem::copy_options::overwrite_existing);
+    if (std::filesystem::is_symlink(fromStatus) && !contents) {
+        std::filesystem::copy(
+            from, to, std::filesystem::copy_options::copy_symlinks | std::filesystem::copy_options::overwrite_existing);
+    } else if (std::filesystem::is_symlink(fromStatus) || std::filesystem::is_regular_file(fromStatus)) {
+        // std::filesystem::copy_file creates the destination with a mode derived from the source,
+        // and on some filesystems (virtiofs, for one) creating a file without the owner-read bit
+        // fails with EACCES. Create with a permissive mode and fix the permissions afterwards.
+        // See https://github.com/apple/container/issues/1344
+        auto perms = std::filesystem::status(from).permissions();
+        {
+            std::ifstream ifs(from, std::ios::binary);
+            std::ofstream ofs(to, std::ios::binary | std::ios::trunc);
+            if (!ifs)
+                throw Error("cannot open '%s' for reading", PathFmt(from));
+            if (!ofs)
+                throw Error("cannot open '%s' for writing", PathFmt(to));
+            ofs << ifs.rdbuf();
+            // operator<<(streambuf*) sets failbit when zero characters are inserted (e.g. the
+            // source file is empty), so only check badbit for real I/O errors.
+            if (ifs.bad())
+                throw Error("failed to read '%s' while copying to '%s'", PathFmt(from), PathFmt(to));
+            if (ofs.bad())
+                throw Error("failed to write '%s' while copying from '%s'", PathFmt(to), PathFmt(from));
         }
+        std::filesystem::permissions(to, perms, std::filesystem::perm_options::replace);
     } else if (std::filesystem::is_directory(fromStatus)) {
         std::filesystem::create_directory(to);
         for (auto & entry : DirectoryIterator(from)) {
