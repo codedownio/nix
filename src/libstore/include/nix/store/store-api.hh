@@ -1074,7 +1074,7 @@ public:
      * writing) an unregistered `.drv` file, when a cheap local check exists that avoids the
      * store's merged/network view. `std::nullopt` means use `toRealPath`.
      */
-    virtual std::optional<Path> lazyDrvProbePath(const StorePath & path)
+    virtual std::optional<std::filesystem::path> lazyDrvProbePath(const StorePath & path)
     {
         return std::nullopt;
     }

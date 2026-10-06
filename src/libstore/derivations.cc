@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include "nix/util/file-system.hh"
+#include "nix/store/local-fs-store.hh"
 #include <optional>
 
 namespace nix {
@@ -154,13 +155,20 @@ StorePath Store::writeDerivation(const Derivation & drv, RepairFlag repair)
         // merged-view lookup of a drv name before it is written (later lookups find it fresh);
         // a name merged-looked-up BEFORE being written would be undefined overlayfs behavior,
         // so drv reads must stay after writes (which evaluation guarantees).
-        auto probe = lazyDrvProbePath(path).value_or(toRealPath(path));
-        if (!pathExists(probe)) {
-            auto tmp = probe + ".tmp";
-            writeFile(tmp, contents, 0444);
-            std::filesystem::rename(tmp, probe);
+        auto probe = lazyDrvProbePath(path);
+        if (!probe)
+            if (auto * fsStore = dynamic_cast<LocalFSStore *>(this))
+                probe = fsStore->toRealPath(path);
+        // A store with no filesystem location (a remote daemon, a binary cache) can't take a
+        // plain file write, so it falls through to the registering write below.
+        if (probe) {
+            if (!pathExists(*probe)) {
+                auto tmp = std::filesystem::path(*probe) += ".tmp";
+                writeFile(tmp, contents, 0444);
+                std::filesystem::rename(tmp, *probe);
+            }
+            return path;
         }
-        return path;
     }
 
     /* In case the derivation is already valid, we bail out early since that's

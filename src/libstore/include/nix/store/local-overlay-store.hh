@@ -158,7 +158,7 @@ private:
      * lazy-derivation-writes: probe the upper layer's physical dir for the drv file — a local
      * stat instead of a lookup through the merged overlay (FUSE + store round-trip on miss).
      */
-    std::optional<Path> lazyDrvProbePath(const StorePath & path) override;
+    std::optional<std::filesystem::path> lazyDrvProbePath(const StorePath & path) override;
 
     /**
      * Copy `path`'s metadata (and, recursively, that of its references) up from the lower store into

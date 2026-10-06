@@ -163,7 +163,7 @@ bool LocalOverlayStore::isValidPathUncached(const StorePath & path)
     return lowerStore->isValidPath(path);
 }
 
-std::optional<Path> LocalOverlayStore::lazyDrvProbePath(const StorePath & path)
+std::optional<std::filesystem::path> LocalOverlayStore::lazyDrvProbePath(const StorePath & path)
 {
     return config->toUpperPath(path);
 }
